@@ -1386,7 +1386,30 @@ function togglePresente(jogoId, jogId, valor) { // "Presente" (físico)
   const jogo = appData.jogos.find(j => j.id === jogoId);
   if (!jogo) return;
   if (!jogo.presentes) jogo.presentes = {};
+
   jogo.presentes[jogId] = valor;
+
+  if (valor) {
+    // Marcou como presente → confirmar automaticamente se ainda não confirmado
+    if (!jogo.presencas[jogId]) {
+      // Verificar limite antes de confirmar
+      const cfg = appData.config || {};
+      if (cfg.bloquearPresenca && cfg.maxPresenca > 0) {
+        const confirmados = Object.values(jogo.presencas).filter(Boolean).length;
+        if (confirmados >= cfg.maxPresenca) {
+          jogo.presentes[jogId] = false; // desfaz o check
+          toast(`Limite de ${cfg.maxPresenca} confirmados atingido!`, 'error');
+          save(); renderJogos(); renderResumo();
+          return;
+        }
+      }
+      jogo.presencas[jogId] = true;
+    }
+  } else {
+    // Desmarcou presente → remove confirmação também
+    jogo.presencas[jogId] = false;
+  }
+
   save(); renderJogos(); renderResumo();
 }
 
