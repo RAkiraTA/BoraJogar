@@ -500,12 +500,20 @@
 </head>
 <body>
 
+<!-- Loading overlay -->
+<div id="app-loading" style="display:none;position:fixed;inset:0;z-index:9999;background:var(--bg);flex-direction:column;align-items:center;justify-content:center;gap:16px">
+  <div style="font-size:48px">🏐</div>
+  <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--accent);letter-spacing:2px">Vôlei Manager</div>
+  <div style="color:var(--muted);font-size:14px">☁️ Conectando ao banco de dados...</div>
+</div>
+
 <header>
   <div>🏐</div>
-  <div>
+  <div style="flex:1">
     <div class="logo">Vôlei <span>Manager</span></div>
     <div class="header-sub" id="header-grupo-nome">Gestão do seu grupo</div>
   </div>
+  <div id="sync-status" style="font-size:11px;color:var(--muted);text-align:right;white-space:nowrap">☁️ Sincronizado</div>
 </header>
 
 <div class="app-wrapper">
@@ -768,6 +776,7 @@
 
 <div id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 // ===================== DATA =====================
 let appData = JSON.parse(localStorage.getItem('volei_data') || JSON.stringify({
@@ -779,6 +788,11 @@ if (!appData.config) appData.config = { nomeGrupo: '', bloquearPresenca: false, 
 
 function save() {
   localStorage.setItem('volei_data', JSON.stringify(appData));
+  if (currentDraw) {
+    localStorage.setItem('volei_draw', JSON.stringify(currentDraw));
+  } else {
+    localStorage.removeItem('volei_draw');
+  }
 }
 
 function uid() {
@@ -794,7 +808,7 @@ function showSection(id, btn) {
   if (id === 'resumo') renderResumo();
   if (id === 'placar') renderPlacar();
   if (id === 'classificacao') renderClassificacao();
-  if (id === 'sorteio') renderSorteioSelect();
+  if (id === 'sorteio') { renderSorteioSelect(); if (currentDraw) renderTimes(); }
   if (id === 'jogos') renderJogos();
   if (id === 'configuracao') renderConfiguracao();
 }
@@ -1367,7 +1381,7 @@ function addJogo() {
   toast('Jogo criado!');
 }
 
-function togglePresenca(jogoId, jogId) { // "Confirmado"
+function togglePresenca(jogoId, jogId) {
   const jogo = appData.jogos.find(j => j.id === jogoId);
   if (!jogo) return;
   const cfg = appData.config || {};
@@ -1379,65 +1393,72 @@ function togglePresenca(jogoId, jogId) { // "Confirmado"
     }
   }
   jogo.presencas[jogId] = !jogo.presencas[jogId];
+  // Ao desconfirmar → desmarcar presença também
+  if (!jogo.presencas[jogId]) {
+    if (!jogo.presentes) jogo.presentes = {};
+    jogo.presentes[jogId] = false;
+  }
   save(); renderJogos();
 }
 
-function togglePresente(jogoId, jogId, valor) { // "Presente" (físico)
+function togglePresente(jogoId, jogId, valor) {
   const jogo = appData.jogos.find(j => j.id === jogoId);
   if (!jogo) return;
   if (!jogo.presentes) jogo.presentes = {};
-
   jogo.presentes[jogId] = valor;
 
-  if (valor) {
-    // Marcou como presente → confirmar automaticamente se ainda não confirmado
-    if (!jogo.presencas[jogId]) {
-      // Verificar limite antes de confirmar
-      const cfg = appData.config || {};
-      if (cfg.bloquearPresenca && cfg.maxPresenca > 0) {
-        const confirmados = Object.values(jogo.presencas).filter(Boolean).length;
-        if (confirmados >= cfg.maxPresenca) {
-          jogo.presentes[jogId] = false; // desfaz o check
-          toast(`Limite de ${cfg.maxPresenca} confirmados atingido!`, 'error');
-          save(); renderJogos(); renderResumo();
-          return;
-        }
+  if (valor && !jogo.presencas[jogId]) {
+    // Marcou presente sem estar confirmado → confirmar automaticamente
+    const cfg = appData.config || {};
+    if (cfg.bloquearPresenca && cfg.maxPresenca > 0) {
+      const confirmados = Object.values(jogo.presencas).filter(Boolean).length;
+      if (confirmados >= cfg.maxPresenca) {
+        jogo.presentes[jogId] = false;
+        toast(`Limite de ${cfg.maxPresenca} confirmados atingido!`, 'error');
+        save(); renderJogos(); renderResumo();
+        return;
       }
-      jogo.presencas[jogId] = true;
     }
-  } else {
-    // Desmarcou presente → remove confirmação também
-    jogo.presencas[jogId] = false;
+    jogo.presencas[jogId] = true;
   }
+  // Ao desmarcar presente: confirmação permanece intacta
 
   save(); renderJogos(); renderResumo();
 }
 
-function toggleTodos(jogoId, marcarTodos) {
+function toggleTodosConf(jogoId, valor) {
   const jogo = appData.jogos.find(j => j.id === jogoId);
   if (!jogo) return;
+  if (!jogo.presentes) jogo.presentes = {};
   const cfg = appData.config || {};
-  const ativos = appData.jogadores.filter(j => j.ativo !== false);
-
-  if (marcarTodos && cfg.bloquearPresenca && cfg.maxPresenca > 0) {
-    // Marcar apenas até o limite
+  const ativos = appData.jogadores.filter(j => j.ativo !== false && j.id in jogo.presencas);
+  if (valor && cfg.bloquearPresenca && cfg.maxPresenca > 0) {
     let count = 0;
-    ativos.forEach(j => {
-      if (count < cfg.maxPresenca) {
-        jogo.presencas[j.id] = true;
-        count++;
-      } else {
-        jogo.presencas[j.id] = false;
-      }
-    });
-    if (ativos.length > cfg.maxPresenca) {
-      toast(`Limite de ${cfg.maxPresenca} jogadores: apenas os primeiros foram marcados.`, 'info');
-    }
+    ativos.forEach(j => { jogo.presencas[j.id] = count < cfg.maxPresenca; if (jogo.presencas[j.id]) count++; });
+    if (ativos.length > cfg.maxPresenca) toast(`Limite de ${cfg.maxPresenca}: apenas os primeiros marcados.`, 'info');
   } else {
-    ativos.forEach(j => { jogo.presencas[j.id] = marcarTodos; });
+    ativos.forEach(j => {
+      jogo.presencas[j.id] = valor;
+      if (!valor) jogo.presentes[j.id] = false; // desconfirmar → desmarcar presença
+    });
   }
   save(); renderJogos();
 }
+
+function toggleTodosPres(jogoId, valor) {
+  const jogo = appData.jogos.find(j => j.id === jogoId);
+  if (!jogo) return;
+  if (!jogo.presentes) jogo.presentes = {};
+  const ativos = appData.jogadores.filter(j => j.ativo !== false && j.id in jogo.presencas);
+  ativos.forEach(j => {
+    jogo.presentes[j.id] = valor;
+    if (valor && !jogo.presencas[j.id]) jogo.presencas[j.id] = true; // auto-confirmar
+    // desmarcar presente não remove confirmação
+  });
+  save(); renderJogos();
+}
+
+function toggleTodos(jogoId, marcarTodos) { toggleTodosConf(jogoId, marcarTodos); }
 
 let jogoExpandido = null;
 let jogoParaEncerrar = null;
@@ -1513,16 +1534,21 @@ function renderJogos() {
       : `<span class="badge badge-yellow">${confirmados} conf.</span>`;
     const badgePres = `<span class="badge badge-green">${presentesFis} pres.</span>`;
 
+    const todosConf    = jogadoresDoJogo.length > 0 && jogadoresDoJogo.every(j => jogo.presencas[j.id]);
+    const todosPresent = jogadoresDoJogo.length > 0 && jogadoresDoJogo.every(j => (jogo.presentes||{})[j.id]);
+
     const jogadoresHtml = jogadoresDoJogo.length ? `
       <div class="select-all-bar">
-        <span class="select-all-label">
-          ${temLimite ? `Limite: ${confirmados}/${cfg.maxPresenca}` : 'Selecionar todos'}
-        </span>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-success btn-sm" onclick="event.stopPropagation();toggleTodos('${jogo.id}',true)"
-            ${limiteAtingido ? 'disabled style="opacity:0.4;cursor:not-allowed"' : ''}>✓ Todos</button>
-          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();toggleTodos('${jogo.id}',false)">✗ Nenhum</button>
-        </div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;color:var(--accent3)" onclick="event.stopPropagation()">
+          <input type="checkbox" ${todosConf ? 'checked' : ''} onchange="event.stopPropagation();toggleTodosConf('${jogo.id}',this.checked)"
+            style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent3)">
+          Todos confirmados
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;color:var(--blue)" onclick="event.stopPropagation()">
+          <input type="checkbox" ${todosPresent ? 'checked' : ''} onchange="event.stopPropagation();toggleTodosPres('${jogo.id}',this.checked)"
+            style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue)">
+          Todos presentes
+        </label>
       </div>
       ${jogadoresDoJogo.map(j => {
         const confirmado = jogo.presencas[j.id];
@@ -1586,7 +1612,15 @@ function renderJogos() {
 }
 
 // ===================== SORTEIO =====================
-let currentDraw = null;
+let currentDraw = (function() {
+  try {
+    const saved = localStorage.getItem('volei_draw');
+    return saved ? JSON.parse(saved) : null;
+  } catch(e) { return null; }
+})();
+
+let modoEdicaoSorteio = false;
+let editSelecionado    = null; // { jogId, time } — time: 't1'|'t2'|'reserva'|'nextBanco'
 let pendingWinner = null; // 'A' | 'B' | null — time que GANHOU
 
 function renderSorteioSelect() {
@@ -1829,12 +1863,61 @@ function setCriterioRotacao(c) {
   renderTimes();
 }
 
+function toggleEdicaoSorteio() {
+  modoEdicaoSorteio = !modoEdicaoSorteio;
+  editSelecionado = null;
+  renderTimes();
+}
+
+function selecionarParaTroca(jogId, time) {
+  if (!modoEdicaoSorteio || !currentDraw) return;
+
+  if (!editSelecionado) {
+    editSelecionado = { jogId, time };
+    renderTimes();
+    return;
+  }
+
+  const { jogId: jogId1, time: time1 } = editSelecionado;
+
+  // Clicou no mesmo — desselecionar
+  if (jogId1 === jogId && time1 === time) {
+    editSelecionado = null;
+    renderTimes();
+    return;
+  }
+
+  // Trocar os dois jogadores
+  const arr1 = currentDraw[time1];
+  const arr2 = currentDraw[time];
+  const idx1 = arr1.findIndex(j => j.id === jogId1);
+  const idx2 = arr2.findIndex(j => j.id === jogId);
+
+  if (idx1 !== -1 && idx2 !== -1) {
+    const temp = arr1[idx1];
+    arr1[idx1] = arr2[idx2];
+    arr2[idx2] = temp;
+    save();
+    toast(`${temp.nome} ↔ ${arr1[idx1].nome} trocados!`, 'success');
+  }
+
+  editSelecionado = null;
+  renderTimes();
+}
+
 function playerRow(j, removivel, source) {
-  return `<div class="team-player">
-    <span style="font-weight:700">${j.nome}</span>
+  const isSelecionado = modoEdicaoSorteio && editSelecionado && editSelecionado.jogId === j.id && editSelecionado.time === source;
+  const editStyle = modoEdicaoSorteio
+    ? `cursor:pointer;${isSelecionado ? 'background:rgba(245,158,11,0.25);border:2px solid var(--accent);border-radius:8px;' : 'border:2px solid transparent;border-radius:8px;'}`
+    : '';
+  const editOnClick = modoEdicaoSorteio && source
+    ? `onclick="selecionarParaTroca('${j.id}','${source}')"`
+    : '';
+  return `<div class="team-player" style="${editStyle}" ${editOnClick}>
+    <span style="font-weight:700">${isSelecionado ? '👆 ' : ''}${j.nome}</span>
     <div style="display:flex;align-items:center;gap:4px">
       ${j.posicao ? `<span class="player-pos-tag">${j.posicao}</span>` : ''}
-      ${removivel ? `<button class="fila-remove-btn" onclick="solicitarPausar('${j.id}','${source}')" title="Pausar jogador">×</button>` : ''}
+      ${removivel && !modoEdicaoSorteio ? `<button class="fila-remove-btn" onclick="solicitarPausar('${j.id}','${source}')" title="Pausar jogador">×</button>` : ''}
     </div>
   </div>`;
 }
@@ -1918,18 +2001,31 @@ function renderTimes(timeSaiuLabel) {
       </div>`;
   }
 
-  // Fila de espera com botão pausar
+  // Fila de espera com botão pausar / suporte ao modo edição
   let filaHtml = '';
   if (nextBanco && nextBanco.length > 0) {
+    const filaChips = nextBanco.map(j => {
+      const isSel = modoEdicaoSorteio && editSelecionado && editSelecionado.jogId === j.id && editSelecionado.time === 'nextBanco';
+      if (modoEdicaoSorteio) {
+        return `<span class="banco-player-chip" onclick="selecionarParaTroca('${j.id}','nextBanco')"
+          style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;
+            ${isSel ? 'background:rgba(245,158,11,0.25);border-color:var(--accent);' : ''}">
+          ${isSel ? '👆 ' : ''}${j.nome}${j.posicao ? ' · <span style="opacity:.65;font-size:11px">' + j.posicao + '</span>' : ''}
+        </span>`;
+      }
+      return `<span class="banco-player-chip" style="display:inline-flex;align-items:center;gap:2px">
+        ${j.nome}${j.posicao ? ' · <span style="opacity:.65;font-size:11px">' + j.posicao + '</span>' : ''}
+        <button class="fila-remove-btn" onclick="solicitarPausar('${j.id}','fila')" title="Pausar jogador">×</button>
+      </span>`;
+    }).join('');
+
     filaHtml = `
       <div class="banco-card" style="margin-top:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--muted)">📋 Fila de Espera (${nextBanco.length})</div>
-          <span style="font-size:10px;color:var(--muted)">× para pausar</span>
+          ${modoEdicaoSorteio ? '<span style="font-size:10px;color:var(--accent)">toque para trocar</span>' : '<span style="font-size:10px;color:var(--muted)">× para pausar</span>'}
         </div>
-        <div class="banco-players">
-          ${nextBanco.map(j => `<span class="banco-player-chip" style="display:inline-flex;align-items:center;gap:2px">${j.nome}${j.posicao ? ' · <span style="opacity:.65;font-size:11px">' + j.posicao + '</span>' : ''}<button class="fila-remove-btn" onclick="solicitarPausar('${j.id}','fila')" title="Pausar jogador">×</button></span>`).join('')}
-        </div>
+        <div class="banco-players">${filaChips}</div>
       </div>`;
   }
 
@@ -1966,18 +2062,24 @@ function renderTimes(timeSaiuLabel) {
     <div class="card">
       <div class="flex-between" style="margin-bottom:8px">
         <div class="card-title" style="margin-bottom:0">🏆 Times Sorteados</div>
-        <span class="badge badge-yellow">${total} presentes</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="badge badge-yellow">${total} presentes</span>
+          <button onclick="toggleEdicaoSorteio()" class="btn btn-sm ${modoEdicaoSorteio ? 'btn-primary' : 'btn-ghost'}"
+            style="font-size:12px" title="${modoEdicaoSorteio ? 'Sair do modo edição' : 'Editar times — trocar jogadores'}">
+            ✏️ ${modoEdicaoSorteio ? (editSelecionado ? 'Selecione 2º jogador' : 'Selecione jogador') : 'Editar'}
+          </button>
+        </div>
       </div>
       ${jogoRefHtml}
       ${destaqueHtml}
       <div class="team-display">
         <div class="team-card team-a">
           <div class="team-name">🔵 Time A</div>
-          ${t1.map(j => playerRow(j)).join('')}
+          ${t1.map(j => playerRow(j, false, 't1')).join('')}
         </div>
         <div class="team-card team-b">
           <div class="team-name">🔴 Time B</div>
-          ${t2.map(j => playerRow(j)).join('')}
+          ${t2.map(j => playerRow(j, false, 't2')).join('')}
         </div>
         ${reservaHtml}
       </div>
@@ -2650,8 +2752,11 @@ function renderConfiguracao() {
 function limparDados() {
   if (!confirm('⚠️ Atenção!\n\nEsta ação irá apagar TODOS os dados:\n• Jogadores\n• Jogos e presenças\n• Lançamentos financeiros\n\nEsta ação NÃO pode ser desfeita!\n\nDeseja continuar?')) return;
   if (!confirm('Última confirmação: todos os dados serão permanentemente apagados. Confirmar?')) return;
-  appData = { financeiro: [], jogadores: [], jogos: [] };
-  save();
+  appData = { financeiro: [], jogadores: [], jogos: [],
+    config: { nomeGrupo: '', bloquearPresenca: false, maxPresenca: 0 } };
+  currentDraw = null;
+  localStorage.removeItem('volei_draw');
+  save(); // salva local + Supabase
   renderFinanceiro();
   renderJogadores();
   renderJogos();
@@ -2773,21 +2878,157 @@ function formatMes(m) {
   return `${meses[parseInt(mo)-1]}/${y}`;
 }
 
-// ===================== INIT =====================
-const hoje = new Date().toISOString().split('T')[0];
-const mesAtual = hoje.slice(0,7);
-document.getElementById('fin-data').value = hoje;
-document.getElementById('fin-competencia').value = mesAtual;
-document.getElementById('jogo-data').value = hoje;
-document.getElementById('jogo-comp').value = mesAtual;
+// ===================== SUPABASE =====================
+const SB_URL = 'https://rsbdxbepqphsdqmcvrlz.supabase.co';
+const SB_KEY = 'sb_publishable_cxa7w0gbaiS31yZy_0u7gQ_CUbDHc0G';
+const sbClient = window.supabase.createClient(SB_URL, SB_KEY);
 
-renderFinanceiro();
-renderJogadores();
-renderJogos();
-renderSorteioSelect();
-renderResumo();
-atualizarDatalist();
-atualizarHeaderGrupo();
+let _syncPendente = false;
+let _syncTimer    = null;
+
+function setSyncStatus(status) {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  const map = {
+    ok:      { text: '☁️ Sincronizado',  color: 'var(--accent3)' },
+    saving:  { text: '⏳ Salvando...',   color: 'var(--accent)'  },
+    offline: { text: '📴 Offline',       color: 'var(--muted)'   },
+    error:   { text: '⚠️ Erro de sync',  color: 'var(--accent2)' },
+  };
+  const s = map[status] || map.ok;
+  el.textContent = s.text;
+  el.style.color = s.color;
+}
+
+async function salvarSupabase() {
+  setSyncStatus('saving');
+  try {
+    const { error } = await sbClient.from('volei_dados').upsert({
+      id: 'principal',
+      financeiro: appData.financeiro,
+      jogadores:  appData.jogadores,
+      jogos:      appData.jogos,
+      config:     appData.config || {},
+      sorteio:    currentDraw || null,
+      updated_at: new Date().toISOString()
+    });
+    if (error) throw error;
+    setSyncStatus('ok');
+  } catch(e) {
+    console.error('Supabase save error:', e);
+    setSyncStatus('error');
+  }
+}
+
+function save() {
+  // Salva localmente imediatamente (responsividade)
+  localStorage.setItem('volei_data', JSON.stringify(appData));
+  currentDraw
+    ? localStorage.setItem('volei_draw', JSON.stringify(currentDraw))
+    : localStorage.removeItem('volei_draw');
+
+  // Debounce para Supabase: agrupa salvamentos rápidos em um único request
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(salvarSupabase, 800);
+}
+
+async function carregarDados() {
+  try {
+    const { data, error } = await sbClient
+      .from('volei_dados')
+      .select('*')
+      .eq('id', 'principal')
+      .single();
+
+    if (error || !data) throw error || new Error('sem dados');
+
+    appData = {
+      financeiro: Array.isArray(data.financeiro) ? data.financeiro : [],
+      jogadores:  Array.isArray(data.jogadores)  ? data.jogadores  : [],
+      jogos:      Array.isArray(data.jogos)       ? data.jogos      : [],
+      config:     data.config || {}
+    };
+    if (!appData.config.nomeGrupo) appData.config = {
+      nomeGrupo: '', bloquearPresenca: false, maxPresenca: 0, ...appData.config
+    };
+    if (data.sorteio) currentDraw = data.sorteio;
+
+    // Backup local
+    localStorage.setItem('volei_data', JSON.stringify(appData));
+    if (currentDraw) localStorage.setItem('volei_draw', JSON.stringify(currentDraw));
+
+    setSyncStatus('ok');
+    return true;
+  } catch(e) {
+    console.warn('Supabase offline, usando localStorage:', e);
+    setSyncStatus('offline');
+    return false;
+  }
+}
+
+// Re-renderiza a aba atual após atualização em tempo real
+function renderAtual() {
+  const sec = document.querySelector('.section.active');
+  if (!sec) return;
+  const id = sec.id.replace('sec-', '');
+  if (id === 'resumo')        renderResumo();
+  if (id === 'financeiro')    { renderFinFiltros(); renderFinLista(); }
+  if (id === 'jogadores')     renderJogadores();
+  if (id === 'jogos')         renderJogos();
+  if (id === 'sorteio')       { renderSorteioSelect(); if (currentDraw) renderTimes(); }
+  if (id === 'classificacao') renderClassificacao();
+  if (id === 'placar')        renderPlacar();
+  atualizarHeaderGrupo();
+}
+
+// Realtime: escuta mudanças feitas por outros dispositivos
+function iniciarRealtime() {
+  sbClient.channel('volei_sync')
+    .on('postgres_changes', {
+      event: 'UPDATE', schema: 'public', table: 'volei_dados'
+    }, payload => {
+      if (!payload.new) return;
+      const d = payload.new;
+      appData = {
+        financeiro: Array.isArray(d.financeiro) ? d.financeiro : [],
+        jogadores:  Array.isArray(d.jogadores)  ? d.jogadores  : [],
+        jogos:      Array.isArray(d.jogos)       ? d.jogos      : [],
+        config:     d.config || appData.config || {}
+      };
+      if (d.sorteio) currentDraw = d.sorteio;
+      localStorage.setItem('volei_data', JSON.stringify(appData));
+      renderAtual();
+      setSyncStatus('ok');
+    })
+    .subscribe();
+}
+
+// ===================== INIT =====================
+const hoje     = new Date().toISOString().split('T')[0];
+const mesAtual = hoje.slice(0, 7);
+document.getElementById('fin-data').value       = hoje;
+document.getElementById('fin-competencia').value = mesAtual;
+document.getElementById('jogo-data').value      = hoje;
+document.getElementById('jogo-comp').value      = mesAtual;
+
+// Loading overlay
+document.getElementById('app-loading').style.display = 'flex';
+
+(async () => {
+  await carregarDados();
+  document.getElementById('app-loading').style.display = 'none';
+
+  renderFinanceiro();
+  renderJogadores();
+  renderJogos();
+  renderSorteioSelect();
+  renderResumo();
+  atualizarDatalist();
+  atualizarHeaderGrupo();
+  if (currentDraw) renderTimes();
+
+  iniciarRealtime();
+})();
 </script>
 </body>
 </html>
