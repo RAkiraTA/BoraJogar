@@ -2913,17 +2913,23 @@ async function salvarSupabase() {
   try {
     const cfg = appData.config || { nomeGrupo: '', bloquearPresenca: false, maxPresenca: 0 };
     const payload = {
-      id:          'principal',
-      financeiro:  Array.isArray(appData.financeiro) ? appData.financeiro : [],
-      jogadores:   Array.isArray(appData.jogadores)  ? appData.jogadores  : [],
-      jogos:       Array.isArray(appData.jogos)       ? appData.jogos      : [],
-      config:      cfg,
-      sorteio:     currentDraw || null,
-      updated_at:  new Date().toISOString()
+      id:         'principal',
+      financeiro: Array.isArray(appData.financeiro) ? appData.financeiro : [],
+      jogadores:  Array.isArray(appData.jogadores)  ? appData.jogadores  : [],
+      jogos:      Array.isArray(appData.jogos)       ? appData.jogos      : [],
+      config:     cfg,
+      updated_at: new Date().toISOString()
     };
-    const { error } = await sbClient.from('volei_dados').upsert(payload);
+
+    // Tenta salvar com sorteio; se falhar por coluna inexistente, tenta sem
+    let { error } = await sbClient.from('volei_dados').upsert({ ...payload, sorteio: currentDraw || null });
+    if (error && (error.message?.includes('sorteio') || error.code === '42703')) {
+      console.warn('Coluna sorteio não existe, salvando sem ela.');
+      ({ error } = await sbClient.from('volei_dados').upsert(payload));
+    }
+
     if (error) {
-      console.error('Supabase erro detalhado:', JSON.stringify(error));
+      console.error('Supabase erro:', JSON.stringify(error));
       toast('Erro Supabase: ' + (error.message || error.code || JSON.stringify(error)), 'error');
       setSyncStatus('error');
       return;
