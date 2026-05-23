@@ -2912,7 +2912,7 @@ async function salvarSupabase() {
   setSyncStatus('saving');
   try {
     const cfg = appData.config || { nomeGrupo: '', bloquearPresenca: false, maxPresenca: 0 };
-    const { error } = await sbClient.from('volei_dados').upsert({
+    const payload = {
       id:          'principal',
       financeiro:  Array.isArray(appData.financeiro) ? appData.financeiro : [],
       jogadores:   Array.isArray(appData.jogadores)  ? appData.jogadores  : [],
@@ -2920,11 +2920,18 @@ async function salvarSupabase() {
       config:      cfg,
       sorteio:     currentDraw || null,
       updated_at:  new Date().toISOString()
-    });
-    if (error) throw error;
+    };
+    const { error } = await sbClient.from('volei_dados').upsert(payload);
+    if (error) {
+      console.error('Supabase erro detalhado:', JSON.stringify(error));
+      toast('Erro Supabase: ' + (error.message || error.code || JSON.stringify(error)), 'error');
+      setSyncStatus('error');
+      return;
+    }
     setSyncStatus('ok');
   } catch(e) {
-    console.error('Supabase save error:', e);
+    console.error('Supabase exceção:', e);
+    toast('Erro de conexão: ' + (e.message || String(e)), 'error');
     setSyncStatus('error');
   }
 }
