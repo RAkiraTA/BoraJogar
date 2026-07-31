@@ -3024,6 +3024,12 @@ async function submitAuth() {
   if (!email || !senha) { showAuthMsg('Preencha e-mail e senha.', 'error'); return; }
   if (senha.length < 6)  { showAuthMsg('A senha precisa ter ao menos 6 caracteres.', 'error'); return; }
 
+  if (!window.supabase || !sbClient || !sbClient.auth) {
+    showAuthMsg('Falha ao carregar a biblioteca do Supabase. Verifique sua conexão e recarregue a página.', 'error');
+    console.error('supabase-js não carregado. window.supabase:', window.supabase);
+    return;
+  }
+
   btn.disabled = true;
   const textoOriginal = btn.textContent;
   btn.textContent = 'Aguarde...';
@@ -3033,12 +3039,14 @@ async function submitAuth() {
       const { data, error } = await sbClient.auth.signUp({ email, password: senha });
       if (error) throw error;
 
-      if (data.session) {
-        // Login automático (confirmação de e-mail desativada no projeto)
+      if (data?.session) {
         location.reload();
-      } else {
+      } else if (data?.user) {
         showAuthMsg('Conta criada! Verifique seu e-mail para confirmar antes de entrar.', 'success');
         setAuthMode('login');
+      } else {
+        showAuthMsg('Resposta inesperada do servidor. Tente novamente em instantes.', 'error');
+        console.error('signUp retornou sem user/session:', data);
       }
     } else {
       const { data, error } = await sbClient.auth.signInWithPassword({ email, password: senha });
@@ -3046,11 +3054,36 @@ async function submitAuth() {
       location.reload();
     }
   } catch(e) {
-    console.error('Erro de auth:', e);
-    let msg = e.message || 'Erro desconhecido.';
-    if (msg.includes('Invalid login credentials')) msg = 'E-mail ou senha incorretos.';
-    if (msg.includes('already registered'))          msg = 'Este e-mail já possui uma conta. Tente entrar.';
-    if (msg.includes('User already registered'))     msg = 'Este e-mail já possui uma conta. Tente entrar.';
+    console.error('Erro de auth (objeto completo):', e);
+
+    // Extrai a melhor mensagem possível de diferentes formatos de erro
+    let msg = e?.message || e?.error_description || e?.msg || e?.error || '';
+
+    // Se ainda não tem nada útil, tenta stringificar o objeto para diagnóstico
+    if (!msg || msg === '{}') {
+      try {
+        const dump = JSON.stringify(e, Object.getOwnPropertyNames(e));
+        msg = (dump && dump !== '{}') ? dump : 'Erro sem detalhes retornado pelo servidor.';
+      } catch(_) {
+        msg = 'Erro sem detalhes retornado pelo servidor.';
+      }
+    }
+
+    // Traduções para os casos mais comuns
+    const traducoes = [
+      [/Invalid login credentials/i,        'E-mail ou senha incorretos.'],
+      [/already registered/i,               'Este e-mail já possui uma conta. Tente entrar.'],
+      [/User already registered/i,          'Este e-mail já possui uma conta. Tente entrar.'],
+      [/rate limit/i,                       'Muitas tentativas. Aguarde alguns instantes e tente novamente.'],
+      [/Signups not allowed/i,              'Cadastro de novos usuários está desativado neste projeto.'],
+      [/Password should be at least/i,      'A senha é muito curta ou fraca.'],
+      [/Unable to validate email address/i, 'E-mail inválido.'],
+      [/Failed to fetch/i,                  'Não foi possível conectar ao servidor. Verifique sua internet.'],
+    ];
+    for (const [regex, traducao] of traducoes) {
+      if (regex.test(msg)) { msg = traducao; break; }
+    }
+
     showAuthMsg(msg, 'error');
   } finally {
     btn.disabled = false;
