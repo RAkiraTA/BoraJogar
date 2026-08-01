@@ -2048,6 +2048,26 @@ function renderTimes(timeSaiuLabel) {
   const { t1, t2, reserva, reservaCompleta, nextBanco, qtd, total } = currentDraw;
   const isAdmin = currentUserRole === 'admin';
 
+  // Usuário comum: só vê o sorteio se tiver presença confirmada no jogo correspondente
+  if (!isAdmin) {
+    const jogoDoSorteio = currentDraw.jogoId ? appData.jogos.find(j => j.id === currentDraw.jogoId) : null;
+    const temPresenca = !!(currentUserJogadorId && jogoDoSorteio &&
+      jogoDoSorteio.presencas && jogoDoSorteio.presencas[currentUserJogadorId]);
+
+    if (!temPresenca) {
+      res.innerHTML = `
+        <div class="card">
+          <div class="empty" style="padding:24px 0">
+            <div class="empty-icon">🔒</div>
+            <div>${currentUserJogadorId
+              ? 'O sorteio só é exibido para quem confirmou presença no jogo correspondente.'
+              : 'Sua conta ainda não está vinculada a um jogador. Peça ao administrador para vincular.'}</div>
+          </div>
+        </div>`;
+      return;
+    }
+  }
+
   // Cabeçalho: jogo de referência
   const jogoRefHtml = currentDraw.jogoRef
     ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;font-size:13px">
