@@ -565,6 +565,7 @@
   <button class="nav-btn nav-admin-only" onclick="showSection('jogos',this)"><span class="nav-icon">🏐</span><span class="nav-label">Jogos</span></button>
   <button class="nav-btn nav-admin-only" onclick="showSection('jogadores',this)"><span class="nav-icon">👥</span><span class="nav-label">Jogadores</span></button>
   <button class="nav-btn nav-admin-only" onclick="showSection('financeiro',this)"><span class="nav-icon">💰</span><span class="nav-label">Financeiro</span></button>
+  <button class="nav-btn nav-admin-only" onclick="showSection('usuarios',this)"><span class="nav-icon">🧑‍💼</span><span class="nav-label">Usuários</span></button>
   <button class="nav-btn nav-admin-only" onclick="showSection('configuracao',this)"><span class="nav-icon">⚙️</span><span class="nav-label">Configuração</span></button>
 </aside>
 
@@ -588,6 +589,10 @@
   <!-- PERFIL -->
   <div class="section" id="sec-perfil">
     <div id="perfil-content"></div>
+  </div>
+
+  <div class="section" id="sec-usuarios">
+    <div id="usuarios-content"></div>
   </div>
 
   <div class="section" id="sec-configuracao">
@@ -840,7 +845,7 @@ function uid() {
 }
 
 // ===================== UI =====================
-const ADMIN_ONLY_SECTIONS = ['jogos', 'jogadores', 'financeiro', 'configuracao'];
+const ADMIN_ONLY_SECTIONS = ['jogos', 'jogadores', 'financeiro', 'usuarios', 'configuracao'];
 
 function showSection(id, btn) {
   if (ADMIN_ONLY_SECTIONS.includes(id) && currentUserRole !== 'admin') {
@@ -856,6 +861,7 @@ function showSection(id, btn) {
   if (id === 'classificacao') renderClassificacao();
   if (id === 'sorteio') { renderSorteioSelect(); if (currentDraw) renderTimes(); }
   if (id === 'jogos') renderJogos();
+  if (id === 'usuarios') renderUsuarios();
   if (id === 'configuracao') renderConfiguracao();
   if (id === 'perfil') renderPerfil();
 }
@@ -2711,9 +2717,33 @@ function renderResumo() {
                   ${j.posicao ? `<span style="font-size:11px;color:var(--muted)">${j.posicao}</span>` : ''}
                 </div>`).join('')}
           </div>` : ''}
-        ${currentUserJogadorId && proximo.presencas && (currentUserJogadorId in proximo.presencas) ? `
+        ${currentUserJogadorId && proximo.presencas && (currentUserJogadorId in proximo.presencas) ? (() => {
+          const jaConfirmado = !!proximo.presencas[currentUserJogadorId];
+          const cfgAtual = appData.config || {};
+
+          // Avulso ainda não confirmado: verificar se já está liberado
+          if (!jaConfirmado && currentUserTipoJogador === 'avulso') {
+            const diasAntes = cfgAtual.avulsoDiasAntes ?? 0;
+            const horario   = cfgAtual.avulsoHorario || '00:00';
+            const [hh, mm]  = horario.split(':').map(Number);
+            const dataJogo  = new Date(proximo.data + 'T00:00:00');
+            const liberadoEm = new Date(dataJogo);
+            liberadoEm.setDate(liberadoEm.getDate() - diasAntes);
+            liberadoEm.setHours(hh || 0, mm || 0, 0, 0);
+
+            if (new Date() < liberadoEm) {
+              const dataFmt = liberadoEm.toLocaleDateString('pt-BR');
+              const horaFmt = liberadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+              return `
+                <div style="margin-top:14px;padding:12px;background:rgba(100,116,139,0.1);border:1px dashed var(--border);border-radius:10px;font-size:12px;color:var(--muted)">
+                  🔒 Como avulso, sua confirmação libera em <b style="color:var(--accent)">${dataFmt} às ${horaFmt}</b>.
+                </div>`;
+            }
+          }
+
+          return `
           <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
-            ${proximo.presencas[currentUserJogadorId] ? `
+            ${jaConfirmado ? `
               <button class="btn btn-full" onclick="confirmarMinhaPresenca('${proximo.id}', false)"
                 style="background:rgba(239,68,68,0.1);color:var(--accent2);border:1.5px solid rgba(239,68,68,0.3)">
                 ✗ Cancelar minha presença
@@ -2723,8 +2753,8 @@ function renderResumo() {
                 ✅ Confirmar minha presença
               </button>
             `}
-          </div>
-        ` : ''}
+          </div>`;
+        })() : ''}
       ` : '<div class="empty" style="padding:20px 0"><div>Nenhum jogo cadastrado</div></div>'}
     </div>`;
 
@@ -2838,6 +2868,31 @@ function renderConfiguracao() {
       ` : ''}
     </div>
 
+    <!-- Regras de confirmação para avulsos -->
+    <div class="card">
+      <div class="card-title">⏱️ Regras de Confirmação — Avulsos</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">
+        Mensalistas têm preferência e podem confirmar presença a qualquer momento. Avulsos só podem
+        confirmar a partir do prazo definido abaixo.
+      </div>
+      <div class="form-group">
+        <label>Quantos dias antes os avulsos poderão marcar presença</label>
+        <input type="number" id="cfg-avulso-dias" min="0" max="30" placeholder="Ex: 2"
+          value="${cfg.avulsoDiasAntes ?? ''}"
+          onchange="appData.config.avulsoDiasAntes=Math.max(0,parseInt(this.value)||0);save()">
+      </div>
+      <div class="form-group">
+        <label>A partir de qual horário</label>
+        <input type="time" id="cfg-avulso-horario"
+          value="${cfg.avulsoHorario || '00:00'}"
+          onchange="appData.config.avulsoHorario=this.value;save()">
+      </div>
+      ${(cfg.avulsoDiasAntes || cfg.avulsoHorario) ? `
+        <div style="font-size:12px;color:var(--accent);margin-top:4px;font-weight:700">
+          Liberado a partir de ${cfg.avulsoDiasAntes ?? 0} dia(s) antes do jogo, às ${cfg.avulsoHorario || '00:00'}.
+        </div>` : ''}
+    </div>
+
     <!-- Backup -->
     <div class="card">
       <div class="card-title">💾 Backup de Dados</div>
@@ -2881,22 +2936,24 @@ function renderConfiguracao() {
 
       </div>
     </div>
+  `;
+}
 
-    ${currentUserRole === 'admin' ? `
-    <!-- Gerenciar Usuários (somente admin) -->
+// ===================== GERENCIAR USUÁRIOS =====================
+function renderUsuarios() {
+  document.getElementById('usuarios-content').innerHTML = `
     <div class="card">
-      <div class="card-title">👤 Gerenciar Usuários</div>
+      <div class="card-title">🧑‍💼 Gerenciar Usuários</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">
-        Defina quem tem acesso de administrador. Novas contas entram como <b>usuário</b> por padrão.
+        Defina o papel (admin/usuário), o jogador vinculado e se cada conta é <b>mensalista</b> ou
+        <b>avulsa</b>. Novas contas entram como <b>usuário / mensalista</b> por padrão.
       </div>
       <div id="user-list-content">
         <div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">Carregando usuários...</div>
       </div>
     </div>
-    ` : ''}
   `;
-
-  if (currentUserRole === 'admin') carregarListaUsuarios();
+  carregarListaUsuarios();
 }
 
 async function carregarListaUsuarios() {
@@ -2916,6 +2973,7 @@ async function carregarListaUsuarios() {
 
     el.innerHTML = data.map(u => {
       const jogadorVinculado = appData.jogadores.find(j => j.id === u.jogador_id);
+      const tipo = u.tipo_jogador || 'mensalista';
       return `
       <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px">
         <div style="display:flex;width:100%;align-items:center;gap:10px">
@@ -2936,11 +2994,33 @@ async function carregarListaUsuarios() {
             ${jogadoresOptions(u.jogador_id)}
           </select>
         </div>
+        <div style="width:100%;display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--muted);white-space:nowrap">Tipo:</span>
+          <div style="display:flex;gap:6px;flex:1">
+            <button class="btn btn-sm ${tipo === 'mensalista' ? 'btn-success' : 'btn-ghost'}"
+              onclick="atualizarTipoJogador('${u.id}','mensalista')" style="flex:1;font-size:11px">📅 Mensalista</button>
+            <button class="btn btn-sm ${tipo === 'avulso' ? 'btn-primary' : 'btn-ghost'}"
+              onclick="atualizarTipoJogador('${u.id}','avulso')" style="flex:1;font-size:11px">🎟️ Avulso</button>
+          </div>
+        </div>
       </div>`;
     }).join('') || '<div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">Nenhum usuário encontrado</div>';
   } catch(e) {
     console.error('Erro ao carregar usuários:', e);
     el.innerHTML = '<div style="text-align:center;padding:16px;color:var(--accent2);font-size:13px">Erro ao carregar usuários</div>';
+  }
+}
+
+async function atualizarTipoJogador(userId, tipo) {
+  try {
+    const { error } = await sbClient.from('user_profiles').update({ tipo_jogador: tipo }).eq('id', userId);
+    if (error) throw error;
+    toast(`Definido como ${tipo === 'mensalista' ? 'Mensalista' : 'Avulso'}!`, 'success');
+    if (userId === currentUser?.id) currentUserTipoJogador = tipo;
+    carregarListaUsuarios();
+  } catch(e) {
+    console.error('Erro ao atualizar tipo:', e);
+    toast('Erro ao atualizar tipo do jogador.', 'error');
   }
 }
 
@@ -3210,6 +3290,7 @@ function formatMes(m) {
 let currentUser         = null;
 let currentUserRole     = 'user';
 let currentUserJogadorId = null; // id do jogador vinculado a esta conta (para confirmar presença)
+let currentUserTipoJogador = 'mensalista'; // 'mensalista' | 'avulso'
 let authMode            = 'login'; // 'login' | 'signup'
 
 function setAuthMode(mode) {
@@ -3325,12 +3406,14 @@ async function carregarPerfilUsuario(userId) {
   try {
     const { data, error } = await sbClient.from('user_profiles').select('*').eq('id', userId).single();
     if (error) throw error;
-    currentUserRole      = data?.role || 'user';
-    currentUserJogadorId = data?.jogador_id || null;
+    currentUserRole        = data?.role || 'user';
+    currentUserJogadorId   = data?.jogador_id || null;
+    currentUserTipoJogador = data?.tipo_jogador || 'mensalista';
   } catch(e) {
     console.warn('Não foi possível carregar o perfil, assumindo role padrão:', e);
-    currentUserRole      = 'user';
-    currentUserJogadorId = null;
+    currentUserRole        = 'user';
+    currentUserJogadorId   = null;
+    currentUserTipoJogador = 'mensalista';
   }
 }
 
@@ -3481,6 +3564,8 @@ function renderAtual() {
   if (id === 'sorteio')       { renderSorteioSelect(); if (currentDraw) renderTimes(); }
   if (id === 'classificacao') renderClassificacao();
   if (id === 'placar')        renderPlacar();
+  if (id === 'usuarios')      renderUsuarios();
+  if (id === 'configuracao')  renderConfiguracao();
   atualizarHeaderGrupo();
 }
 
