@@ -560,11 +560,12 @@
   <button class="nav-btn" onclick="showSection('placar',this)"><span class="nav-icon">🏆</span><span class="nav-label">Placar</span></button>
   <button class="nav-btn" onclick="showSection('sorteio',this)"><span class="nav-icon">🎲</span><span class="nav-label">Sorteio</span></button>
   <button class="nav-btn" onclick="showSection('classificacao',this)"><span class="nav-icon">🥇</span><span class="nav-label">Classificação</span></button>
+  <button class="nav-btn" onclick="showSection('perfil',this)"><span class="nav-icon">🙍</span><span class="nav-label">Perfil</span></button>
   <hr class="nav-divider">
-  <button class="nav-btn" onclick="showSection('jogos',this)"><span class="nav-icon">🏐</span><span class="nav-label">Jogos</span></button>
-  <button class="nav-btn" onclick="showSection('jogadores',this)"><span class="nav-icon">👥</span><span class="nav-label">Jogadores</span></button>
-  <button class="nav-btn" onclick="showSection('financeiro',this)"><span class="nav-icon">💰</span><span class="nav-label">Financeiro</span></button>
-  <button class="nav-btn" onclick="showSection('configuracao',this)"><span class="nav-icon">⚙️</span><span class="nav-label">Configuração</span></button>
+  <button class="nav-btn nav-admin-only" onclick="showSection('jogos',this)"><span class="nav-icon">🏐</span><span class="nav-label">Jogos</span></button>
+  <button class="nav-btn nav-admin-only" onclick="showSection('jogadores',this)"><span class="nav-icon">👥</span><span class="nav-label">Jogadores</span></button>
+  <button class="nav-btn nav-admin-only" onclick="showSection('financeiro',this)"><span class="nav-icon">💰</span><span class="nav-label">Financeiro</span></button>
+  <button class="nav-btn nav-admin-only" onclick="showSection('configuracao',this)"><span class="nav-icon">⚙️</span><span class="nav-label">Configuração</span></button>
 </aside>
 
 <main>
@@ -583,6 +584,12 @@
   <div class="section" id="sec-classificacao">
     <div id="classificacao-content"></div>
   </div>
+
+  <!-- PERFIL -->
+  <div class="section" id="sec-perfil">
+    <div id="perfil-content"></div>
+  </div>
+
   <div class="section" id="sec-configuracao">
     <div id="config-content"></div>
   </div>
@@ -684,7 +691,7 @@
 
   <!-- SORTEIO -->
   <div class="section" id="sec-sorteio">
-    <div class="card">
+    <div class="card" id="sorteio-form-card">
       <div class="card-title">🎲 Sortear Times</div>
       <div class="form-group">
         <label>Jogo de referência (presença)</label>
@@ -713,11 +720,6 @@
       <button class="btn btn-success btn-full mt-10" onclick="sortear()" id="btn-sort">🎲 Realizar Sorteio</button>
     </div>
     <div id="sort-result"></div>
-  </div>
-
-  <!-- RESUMO -->
-  <div class="section" id="sec-resumo">
-    <div id="resumo-content"></div>
   </div>
 
 </main>
@@ -838,7 +840,13 @@ function uid() {
 }
 
 // ===================== UI =====================
+const ADMIN_ONLY_SECTIONS = ['jogos', 'jogadores', 'financeiro', 'configuracao'];
+
 function showSection(id, btn) {
+  if (ADMIN_ONLY_SECTIONS.includes(id) && currentUserRole !== 'admin') {
+    toast('Acesso restrito a administradores.', 'error');
+    return;
+  }
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('sec-' + id).classList.add('active');
@@ -849,6 +857,15 @@ function showSection(id, btn) {
   if (id === 'sorteio') { renderSorteioSelect(); if (currentDraw) renderTimes(); }
   if (id === 'jogos') renderJogos();
   if (id === 'configuracao') renderConfiguracao();
+  if (id === 'perfil') renderPerfil();
+}
+
+// Mostra/oculta abas administrativas conforme o papel do usuário logado
+function applyRoleUI() {
+  const isAdmin = currentUserRole === 'admin';
+  document.querySelectorAll('.nav-admin-only').forEach(el => {
+    el.style.display = isAdmin ? '' : 'none';
+  });
 }
 
 function toast(msg, type = 'success') {
@@ -1662,6 +1679,21 @@ let editSelecionado    = null; // { jogId, time } — time: 't1'|'t2'|'reserva'|
 let pendingWinner = null; // 'A' | 'B' | null — time que GANHOU
 
 function renderSorteioSelect() {
+  const formCard = document.getElementById('sorteio-form-card');
+  const isAdmin = currentUserRole === 'admin';
+
+  if (formCard) formCard.style.display = isAdmin ? '' : 'none';
+
+  if (!isAdmin && !currentDraw) {
+    document.getElementById('sort-result').innerHTML = `
+      <div class="card">
+        <div class="empty" style="padding:24px 0">
+          <div class="empty-icon">🎲</div>
+          <div>Aguardando o administrador realizar o sorteio.</div>
+        </div>
+      </div>`;
+  }
+
   const sel = document.getElementById('sort-jogo');
   const sorted = [...appData.jogos].filter(j => !j.encerrado).sort((a,b) => b.data.localeCompare(a.data));
   sel.innerHTML = `<option value="">— Selecionar Jogo —</option>` +
@@ -1699,7 +1731,17 @@ function buildReserva(pool, qtd, criterio) {
   return { reserva: drawn, nextBanco: remaining, reservaCompleta: drawn.length >= qtd };
 }
 
+// Bloqueia ações administrativas para usuários comuns (defesa extra além da UI oculta)
+function exigirAdmin() {
+  if (currentUserRole !== 'admin') {
+    toast('Apenas administradores podem realizar esta ação.', 'error');
+    return false;
+  }
+  return true;
+}
+
 function sortear() {
+  if (!exigirAdmin()) return;
   const jogoId = document.getElementById('sort-jogo').value;
   const qtd = parseInt(document.getElementById('sort-qtd').value);
   const criterio = document.getElementById('sort-criterio').value;
@@ -1765,6 +1807,7 @@ function sortear() {
 
 // Usuário clica em "Time X ganhou" — pede confirmação
 function selecionarGanhador(time) {
+  if (!exigirAdmin()) return;
   pendingWinner = time;
   renderConfirmacaoGanhador();
 }
@@ -1781,6 +1824,7 @@ function toggleConfirmarBtn() {
 }
 
 function confirmarGanhador() {
+  if (!exigirAdmin()) return;
   if (!pendingWinner || !currentDraw) return;
 
   // Contabiliza jogos e vitórias ANTES da rotação
@@ -1850,6 +1894,7 @@ function confirmarGanhador() {
 // ── Render helpers ──
 
 function atualizarSorteio() {
+  if (!exigirAdmin()) return;
   if (!currentDraw) return;
   const { t1, t2, reserva, nextBanco, pausados, qtd, criterio, jogoId } = currentDraw;
 
@@ -1896,18 +1941,21 @@ function atualizarSorteio() {
 }
 
 function setCriterioRotacao(c) {
+  if (!exigirAdmin()) return;
   if (!currentDraw) return;
   currentDraw.criterioRotacao = c;
   renderTimes();
 }
 
 function toggleEdicaoSorteio() {
+  if (!exigirAdmin()) return;
   modoEdicaoSorteio = !modoEdicaoSorteio;
   editSelecionado = null;
   renderTimes();
 }
 
 function selecionarParaTroca(jogId, time) {
+  if (currentUserRole !== 'admin') return;
   if (!modoEdicaoSorteio || !currentDraw) return;
 
   if (!editSelecionado) {
@@ -1998,6 +2046,7 @@ function renderTimes(timeSaiuLabel) {
   const res = document.getElementById('sort-result');
   if (!currentDraw) return;
   const { t1, t2, reserva, reservaCompleta, nextBanco, qtd, total } = currentDraw;
+  const isAdmin = currentUserRole === 'admin';
 
   // Cabeçalho: jogo de referência
   const jogoRefHtml = currentDraw.jogoRef
@@ -2031,7 +2080,7 @@ function renderTimes(timeSaiuLabel) {
             : `<span class="badge badge-yellow">+${needed} do perdedor</span>`}
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
-          ${reserva.map(j => playerRow(j, true, 'reserva')).join('')}
+          ${reserva.map(j => playerRow(j, isAdmin, 'reserva')).join('')}
         </div>
         ${!reservaCompleta ? `<div style="margin-top:8px;padding:7px 10px;background:rgba(245,158,11,0.08);border-radius:7px;font-size:12px;color:var(--accent);font-weight:700;border:1px dashed rgba(245,158,11,0.3)">
           ⚠️ Faltam ${needed} jogador(es) — serão sorteados do perdedor ao confirmar abaixo.
@@ -2044,7 +2093,7 @@ function renderTimes(timeSaiuLabel) {
   if (nextBanco && nextBanco.length > 0) {
     const filaChips = nextBanco.map(j => {
       const isSel = modoEdicaoSorteio && editSelecionado && editSelecionado.jogId === j.id && editSelecionado.time === 'nextBanco';
-      if (modoEdicaoSorteio) {
+      if (isAdmin && modoEdicaoSorteio) {
         return `<span class="banco-player-chip" onclick="selecionarParaTroca('${j.id}','nextBanco')"
           style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;
             ${isSel ? 'background:rgba(245,158,11,0.25);border-color:var(--accent);' : ''}">
@@ -2053,7 +2102,7 @@ function renderTimes(timeSaiuLabel) {
       }
       return `<span class="banco-player-chip" style="display:inline-flex;align-items:center;gap:2px">
         ${j.nome}${j.posicao ? ' · <span style="opacity:.65;font-size:11px">' + j.posicao + '</span>' : ''}
-        <button class="fila-remove-btn" onclick="solicitarPausar('${j.id}','fila')" title="Pausar jogador">×</button>
+        ${isAdmin ? `<button class="fila-remove-btn" onclick="solicitarPausar('${j.id}','fila')" title="Pausar jogador">×</button>` : ''}
       </span>`;
     }).join('');
 
@@ -2061,7 +2110,7 @@ function renderTimes(timeSaiuLabel) {
       <div class="banco-card" style="margin-top:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--muted)">📋 Fila de Espera (${nextBanco.length})</div>
-          ${modoEdicaoSorteio ? '<span style="font-size:10px;color:var(--accent)">toque para trocar</span>' : '<span style="font-size:10px;color:var(--muted)">× para pausar</span>'}
+          ${isAdmin ? (modoEdicaoSorteio ? '<span style="font-size:10px;color:var(--accent)">toque para trocar</span>' : '<span style="font-size:10px;color:var(--muted)">× para pausar</span>') : ''}
         </div>
         <div class="banco-players">${filaChips}</div>
       </div>`;
@@ -2075,17 +2124,17 @@ function renderTimes(timeSaiuLabel) {
       <div style="margin-top:10px;padding:12px;background:rgba(239,68,68,0.05);border:1.5px dashed rgba(239,68,68,0.25);border-radius:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--accent2)">⏸️ Pausados (${pausados.length})</div>
-          <span style="font-size:10px;color:var(--muted)">▶ para retornar</span>
+          ${isAdmin ? '<span style="font-size:10px;color:var(--muted)">▶ para retornar</span>' : ''}
         </div>
         <div class="banco-players">
-          ${pausados.map(j => `<span class="banco-player-chip" style="display:inline-flex;align-items:center;gap:4px;border-color:rgba(239,68,68,0.25)">${j.nome}${j.posicao ? ' · <span style="opacity:.65;font-size:11px">' + j.posicao + '</span>' : ''}<button class="fila-remove-btn" style="background:rgba(16,185,129,0.2);color:var(--accent3);font-size:13px" onclick="solicitarRetornar('${j.id}')" title="Retornar ao jogo">▶</button></span>`).join('')}
+          ${pausados.map(j => `<span class="banco-player-chip" style="display:inline-flex;align-items:center;gap:4px;border-color:rgba(239,68,68,0.25)">${j.nome}${j.posicao ? ' · <span style="opacity:.65;font-size:11px">' + j.posicao + '</span>' : ''}${isAdmin ? `<button class="fila-remove-btn" style="background:rgba(16,185,129,0.2);color:var(--accent3);font-size:13px" onclick="solicitarRetornar('${j.id}')" title="Retornar ao jogo">▶</button>` : ''}</span>`).join('')}
         </div>
       </div>`;
   }
 
-  // Tipo de sorteio para as rodadas seguintes
+  // Tipo de sorteio para as rodadas seguintes (somente admin)
   const crRot = currentDraw.criterioRotacao || 'aleatorio';
-  const tipoSorteioHtml = `
+  const tipoSorteioHtml = isAdmin ? `
     <div style="margin-top:10px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px">
       <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">🔀 Tipo de Sorteio (próximas rodadas)</div>
       <div style="display:flex;gap:8px">
@@ -2094,7 +2143,7 @@ function renderTimes(timeSaiuLabel) {
         <button class="btn btn-full ${crRot === 'equilibrado' ? 'btn-success' : 'btn-ghost'}"
           onclick="setCriterioRotacao('equilibrado')" style="font-size:13px">⚖️ Equilibrado</button>
       </div>
-    </div>`;
+    </div>` : '';
 
   res.innerHTML = `
     <div class="card">
@@ -2102,10 +2151,11 @@ function renderTimes(timeSaiuLabel) {
         <div class="card-title" style="margin-bottom:0">🏆 Times Sorteados</div>
         <div style="display:flex;gap:8px;align-items:center">
           <span class="badge badge-yellow">${total} presentes</span>
+          ${isAdmin ? `
           <button onclick="toggleEdicaoSorteio()" class="btn btn-sm ${modoEdicaoSorteio ? 'btn-primary' : 'btn-ghost'}"
             style="font-size:12px" title="${modoEdicaoSorteio ? 'Sair do modo edição' : 'Editar times — trocar jogadores'}">
             ✏️ ${modoEdicaoSorteio ? (editSelecionado ? 'Selecione 2º jogador' : 'Selecione jogador') : 'Editar'}
-          </button>
+          </button>` : ''}
         </div>
       </div>
       ${jogoRefHtml}
@@ -2124,19 +2174,22 @@ function renderTimes(timeSaiuLabel) {
       ${filaHtml}
       ${pausadosHtml}
       ${tipoSorteioHtml}
-      <div id="perdeu-section" style="margin-top:14px"></div>
+      ${isAdmin ? '<div id="perdeu-section" style="margin-top:14px"></div>' : ''}
+      ${isAdmin ? `
       <hr class="divider">
       <button class="btn btn-ghost btn-full" onclick="atualizarSorteio()" style="margin-top:4px">
         🔄 Atualizar — verificar novos presentes
-      </button>
+      </button>` : ''}
     </div>
   `;
 
-  // Renderiza seção de perdeu (botões ou confirmação)
-  if (pendingWinner) {
-    renderConfirmacaoGanhador();
-  } else {
-    renderGanhadorSection();
+  // Renderiza seção de perdeu (botões ou confirmação) — somente admin
+  if (isAdmin) {
+    if (pendingWinner) {
+      renderConfirmacaoGanhador();
+    } else {
+      renderGanhadorSection();
+    }
   }
 }
 
@@ -2152,6 +2205,7 @@ function shuffle(arr) {
 let pendingAcaoSorteio = null; // { type:'pausar'|'retornar', jogId, source:'fila'|'reserva' }
 
 function solicitarPausar(jogId, source) {
+  if (!exigirAdmin()) return;
   if (!currentDraw) return;
   const pool = source === 'fila' ? currentDraw.nextBanco : currentDraw.reserva;
   const player = pool.find(j => j.id === jogId);
@@ -2169,6 +2223,7 @@ function solicitarPausar(jogId, source) {
 }
 
 function solicitarRetornar(jogId) {
+  if (!exigirAdmin()) return;
   if (!currentDraw) return;
   const player = (currentDraw.pausados || []).find(j => j.id === jogId);
   if (!player) return;
@@ -2607,10 +2662,9 @@ function renderResumo() {
 
   const tipoLabel = { 'receita-mensalidade': 'Mensalidade', 'receita-avulso': 'Avulso' };
   const tipoBadge = { 'receita-mensalidade': 'badge-green', 'receita-avulso': 'badge-blue' };
+  const isAdmin = currentUserRole === 'admin';
 
-  document.getElementById('resumo-content').innerHTML = `
-
-    <!-- 1. Próximo Jogo -->
+  const proximoJogoHtml = `
     <div class="card">
       <div class="card-title">🗓️ Próximo Jogo</div>
       ${proximo ? `
@@ -2622,9 +2676,10 @@ function renderResumo() {
           title="${resumoConfirmadosAberto ? 'Fechar lista' : 'Ver confirmados'}">
           ${confirmados.length} confirmado${confirmados.length !== 1 ? 's' : ''} ${resumoConfirmadosAberto ? '▲' : '▼'}
         </span>
+        ${isAdmin ? `
         <span class="badge badge-green" style="font-size:13px;padding:6px 14px;margin-left:6px">
           ${presentesFisicos.length} presente${presentesFisicos.length !== 1 ? 's' : ''}
-        </span>
+        </span>` : ''}
         ${resumoConfirmadosAberto ? `
           <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
             ${confirmados.length === 0
@@ -2636,8 +2691,29 @@ function renderResumo() {
                   ${j.posicao ? `<span style="font-size:11px;color:var(--muted)">${j.posicao}</span>` : ''}
                 </div>`).join('')}
           </div>` : ''}
+        ${currentUserJogadorId && proximo.presencas && (currentUserJogadorId in proximo.presencas) ? `
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+            ${proximo.presencas[currentUserJogadorId] ? `
+              <button class="btn btn-full" onclick="confirmarMinhaPresenca('${proximo.id}', false)"
+                style="background:rgba(239,68,68,0.1);color:var(--accent2);border:1.5px solid rgba(239,68,68,0.3)">
+                ✗ Cancelar minha presença
+              </button>
+            ` : `
+              <button class="btn btn-success btn-full" onclick="confirmarMinhaPresenca('${proximo.id}', true)">
+                ✅ Confirmar minha presença
+              </button>
+            `}
+          </div>
+        ` : ''}
       ` : '<div class="empty" style="padding:20px 0"><div>Nenhum jogo cadastrado</div></div>'}
-    </div>
+    </div>`;
+
+  if (!isAdmin) {
+    document.getElementById('resumo-content').innerHTML = proximoJogoHtml;
+    return;
+  }
+
+  document.getElementById('resumo-content').innerHTML = proximoJogoHtml + `
 
     <!-- 2. Pagamentos Pendentes -->
     <div class="card">
@@ -2810,23 +2886,54 @@ async function carregarListaUsuarios() {
     const { data, error } = await sbClient.from('user_profiles').select('*').order('email');
     if (error) throw error;
 
-    el.innerHTML = data.map(u => `
-      <div class="list-item" style="padding:10px 12px">
-        <div class="list-item-info">
-          <div style="font-size:13px;font-weight:700">${u.email || '(sem e-mail)'}</div>
-          <div style="font-size:11px;color:var(--muted)">${u.role === 'admin' ? '👑 Administrador' : '👤 Usuário'}</div>
+    const jogadoresOptions = (nome_atual) => {
+      let opts = `<option value="">— Nenhum —</option>`;
+      appData.jogadores.forEach(j => {
+        opts += `<option value="${j.id}" ${j.id === nome_atual ? 'selected' : ''}>${j.nome}</option>`;
+      });
+      return opts;
+    };
+
+    el.innerHTML = data.map(u => {
+      const jogadorVinculado = appData.jogadores.find(j => j.id === u.jogador_id);
+      return `
+      <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px">
+        <div style="display:flex;width:100%;align-items:center;gap:10px">
+          <div class="list-item-info">
+            <div style="font-size:13px;font-weight:700">${u.email || '(sem e-mail)'}</div>
+            <div style="font-size:11px;color:var(--muted)">${u.role === 'admin' ? '👑 Administrador' : '👤 Usuário'}${jogadorVinculado ? ' · 🏐 ' + jogadorVinculado.nome : ''}</div>
+          </div>
+          <button class="btn btn-sm ${u.role === 'admin' ? 'btn-ghost' : 'btn-primary'}"
+            onclick="alternarRoleUsuario('${u.id}','${u.role === 'admin' ? 'user' : 'admin'}')"
+            ${u.id === currentUser?.id ? 'disabled title="Você não pode alterar seu próprio papel"' : ''}
+            style="${u.id === currentUser?.id ? 'opacity:0.4;cursor:not-allowed' : ''}">
+            ${u.role === 'admin' ? 'Tornar Usuário' : 'Tornar Admin'}
+          </button>
         </div>
-        <button class="btn btn-sm ${u.role === 'admin' ? 'btn-ghost' : 'btn-primary'}"
-          onclick="alternarRoleUsuario('${u.id}','${u.role === 'admin' ? 'user' : 'admin'}')"
-          ${u.id === currentUser?.id ? 'disabled title="Você não pode alterar seu próprio papel"' : ''}
-          style="${u.id === currentUser?.id ? 'opacity:0.4;cursor:not-allowed' : ''}">
-          ${u.role === 'admin' ? 'Tornar Usuário' : 'Tornar Admin'}
-        </button>
-      </div>
-    `).join('') || '<div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">Nenhum usuário encontrado</div>';
+        <div style="width:100%;display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--muted);white-space:nowrap">Vincular a jogador:</span>
+          <select onchange="vincularJogador('${u.id}', this.value)" style="flex:1;font-size:12px;padding:6px 8px">
+            ${jogadoresOptions(u.jogador_id)}
+          </select>
+        </div>
+      </div>`;
+    }).join('') || '<div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">Nenhum usuário encontrado</div>';
   } catch(e) {
     console.error('Erro ao carregar usuários:', e);
     el.innerHTML = '<div style="text-align:center;padding:16px;color:var(--accent2);font-size:13px">Erro ao carregar usuários</div>';
+  }
+}
+
+async function vincularJogador(userId, jogadorId) {
+  try {
+    const { error } = await sbClient.from('user_profiles').update({ jogador_id: jogadorId || null }).eq('id', userId);
+    if (error) throw error;
+    toast('Vínculo com jogador atualizado!', 'success');
+    if (userId === currentUser?.id) currentUserJogadorId = jogadorId || null;
+  } catch(e) {
+    console.error('Erro ao vincular jogador:', e);
+    toast('Erro ao vincular jogador.', 'error');
+    carregarListaUsuarios();
   }
 }
 
@@ -2839,6 +2946,102 @@ async function alternarRoleUsuario(userId, novoRole) {
   } catch(e) {
     console.error('Erro ao atualizar papel:', e);
     toast('Erro ao atualizar papel do usuário.', 'error');
+  }
+}
+
+// ===================== PERFIL =====================
+// ===================== CONFIRMAR PRESENÇA (própria) =====================
+async function confirmarMinhaPresenca(jogoId, valor) {
+  if (!currentUserJogadorId) {
+    toast('Sua conta ainda não está vinculada a um jogador. Peça ao administrador para vincular.', 'error');
+    return;
+  }
+  try {
+    const { error } = await sbClient.rpc('confirmar_presenca_propria', {
+      p_jogo_id: jogoId,
+      p_confirmado: valor
+    });
+    if (error) throw error;
+    toast(valor ? '✅ Presença confirmada!' : 'Presença cancelada.', 'success');
+    await carregarDados();
+    renderAtual();
+  } catch(e) {
+    console.error('Erro ao confirmar presença:', e);
+    toast('Erro: ' + (e.message || 'não foi possível confirmar.'), 'error');
+  }
+}
+
+async function renderPerfil() {
+  const el = document.getElementById('perfil-content');
+  if (!el || !currentUser) return;
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title">🙍 Meu Perfil</div>
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" value="${currentUser.email}" disabled style="opacity:0.6;cursor:not-allowed">
+      </div>
+      <div class="form-group">
+        <label>Nome Completo</label>
+        <input type="text" id="perfil-nome-completo" placeholder="Seu nome completo">
+      </div>
+      <div class="form-group">
+        <label>Apelido</label>
+        <input type="text" id="perfil-apelido" placeholder="Como prefere ser chamado">
+      </div>
+      <div class="form-group">
+        <label>Data de Nascimento</label>
+        <input type="date" id="perfil-nascimento">
+      </div>
+      <button class="btn btn-primary btn-full mt-10" id="perfil-salvar-btn" onclick="salvarPerfil()">💾 Salvar</button>
+    </div>
+  `;
+
+  // Carregar dados atuais do perfil
+  try {
+    const { data, error } = await sbClient
+      .from('user_profiles')
+      .select('nome_completo, apelido, data_nascimento')
+      .eq('id', currentUser.id)
+      .single();
+    if (error) throw error;
+
+    if (data) {
+      document.getElementById('perfil-nome-completo').value = data.nome_completo || '';
+      document.getElementById('perfil-apelido').value       = data.apelido || '';
+      document.getElementById('perfil-nascimento').value    = data.data_nascimento || '';
+    }
+  } catch(e) {
+    console.error('Erro ao carregar perfil:', e);
+    toast('Não foi possível carregar seus dados de perfil.', 'error');
+  }
+}
+
+async function salvarPerfil() {
+  const btn = document.getElementById('perfil-salvar-btn');
+  const nomeCompleto = document.getElementById('perfil-nome-completo').value.trim();
+  const apelido       = document.getElementById('perfil-apelido').value.trim();
+  const nascimento     = document.getElementById('perfil-nascimento').value || null;
+
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = 'Salvando...';
+
+  try {
+    const { error } = await sbClient.from('user_profiles').update({
+      nome_completo:    nomeCompleto || null,
+      apelido:          apelido || null,
+      data_nascimento:  nascimento
+    }).eq('id', currentUser.id);
+    if (error) throw error;
+    toast('Perfil atualizado com sucesso!', 'success');
+  } catch(e) {
+    console.error('Erro ao salvar perfil:', e);
+    toast('Erro ao salvar perfil: ' + (e.message || 'tente novamente.'), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
   }
 }
 
@@ -2984,9 +3187,10 @@ function formatMes(m) {
 }
 
 // ===================== AUTENTICAÇÃO =====================
-let currentUser     = null;
-let currentUserRole = 'user';
-let authMode        = 'login'; // 'login' | 'signup'
+let currentUser         = null;
+let currentUserRole     = 'user';
+let currentUserJogadorId = null; // id do jogador vinculado a esta conta (para confirmar presença)
+let authMode            = 'login'; // 'login' | 'signup'
 
 function setAuthMode(mode) {
   authMode = mode;
@@ -3101,10 +3305,12 @@ async function carregarPerfilUsuario(userId) {
   try {
     const { data, error } = await sbClient.from('user_profiles').select('*').eq('id', userId).single();
     if (error) throw error;
-    currentUserRole = data?.role || 'user';
+    currentUserRole      = data?.role || 'user';
+    currentUserJogadorId = data?.jogador_id || null;
   } catch(e) {
     console.warn('Não foi possível carregar o perfil, assumindo role padrão:', e);
-    currentUserRole = 'user';
+    currentUserRole      = 'user';
+    currentUserJogadorId = null;
   }
 }
 
@@ -3138,6 +3344,7 @@ async function initAuth() {
   header.style.display     = 'flex';
   wrapper.style.display    = 'flex';
   atualizarBadgeUsuario();
+  applyRoleUI();
   return true;
 }
 // ===================== SUPABASE =====================
