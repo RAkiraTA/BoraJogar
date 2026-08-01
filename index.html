@@ -569,8 +569,8 @@
   <button class="nav-btn" onclick="showSection('classificacao',this)"><span class="nav-icon">🥇</span><span class="nav-label">Classificação</span></button>
   <button class="nav-btn" onclick="showSection('perfil',this)"><span class="nav-icon">🙍</span><span class="nav-label">Perfil</span></button>
   <hr class="nav-divider">
-  <button class="nav-btn nav-admin-only" onclick="showSection('jogos',this)"><span class="nav-icon">🏐</span><span class="nav-label">Jogos</span></button>
-  <button class="nav-btn nav-admin-only" onclick="showSection('jogadores',this)"><span class="nav-icon">👥</span><span class="nav-label">Jogadores</span></button>
+  <button class="nav-btn nav-manager-only" onclick="showSection('jogos',this)"><span class="nav-icon">🏐</span><span class="nav-label">Jogos</span></button>
+  <button class="nav-btn nav-manager-only" onclick="showSection('jogadores',this)"><span class="nav-icon">👥</span><span class="nav-label">Jogadores</span></button>
   <button class="nav-btn nav-admin-only" onclick="showSection('financeiro',this)"><span class="nav-icon">💰</span><span class="nav-label">Financeiro</span></button>
   <button class="nav-btn nav-admin-only" onclick="showSection('usuarios',this)"><span class="nav-icon">🧑‍💼</span><span class="nav-label">Usuários</span></button>
   <button class="nav-btn nav-admin-only" onclick="showSection('configuracao',this)"><span class="nav-icon">⚙️</span><span class="nav-label">Configuração</span></button>
@@ -852,11 +852,20 @@ function uid() {
 }
 
 // ===================== UI =====================
-const ADMIN_ONLY_SECTIONS = ['jogos', 'jogadores', 'financeiro', 'usuarios', 'configuracao'];
+const ADMIN_ONLY_SECTIONS   = ['financeiro', 'usuarios', 'configuracao'];
+const MANAGER_SECTIONS      = ['jogos', 'jogadores']; // admin OU gerente
+
+function isAdminOuGerente() {
+  return currentUserRole === 'admin' || currentUserRole === 'gerente';
+}
 
 function showSection(id, btn) {
   if (ADMIN_ONLY_SECTIONS.includes(id) && currentUserRole !== 'admin') {
     toast('Acesso restrito a administradores.', 'error');
+    return;
+  }
+  if (MANAGER_SECTIONS.includes(id) && !isAdminOuGerente()) {
+    toast('Acesso restrito a administradores e gerentes.', 'error');
     return;
   }
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -868,6 +877,7 @@ function showSection(id, btn) {
   if (id === 'classificacao') renderClassificacao();
   if (id === 'sorteio') { renderSorteioSelect(); if (currentDraw) renderTimes(); }
   if (id === 'jogos') renderJogos();
+  if (id === 'jogadores') renderJogadores();
   if (id === 'usuarios') renderUsuarios();
   if (id === 'configuracao') renderConfiguracao();
   if (id === 'perfil') renderPerfil();
@@ -876,8 +886,12 @@ function showSection(id, btn) {
 // Mostra/oculta abas administrativas conforme o papel do usuário logado
 function applyRoleUI() {
   const isAdmin = currentUserRole === 'admin';
+  const isManager = isAdminOuGerente();
   document.querySelectorAll('.nav-admin-only').forEach(el => {
     el.style.display = isAdmin ? '' : 'none';
+  });
+  document.querySelectorAll('.nav-manager-only').forEach(el => {
+    el.style.display = isManager ? '' : 'none';
   });
 }
 
@@ -1693,7 +1707,7 @@ let pendingWinner = null; // 'A' | 'B' | null — time que GANHOU
 
 function renderSorteioSelect() {
   const formCard = document.getElementById('sorteio-form-card');
-  const isAdmin = currentUserRole === 'admin';
+  const isAdmin = isAdminOuGerente();
 
   if (formCard) formCard.style.display = isAdmin ? '' : 'none';
 
@@ -1744,10 +1758,10 @@ function buildReserva(pool, qtd, criterio) {
   return { reserva: drawn, nextBanco: remaining, reservaCompleta: drawn.length >= qtd };
 }
 
-// Bloqueia ações administrativas para usuários comuns (defesa extra além da UI oculta)
+// Bloqueia ações de sorteio para quem não é admin/gerente (defesa extra além da UI oculta)
 function exigirAdmin() {
-  if (currentUserRole !== 'admin') {
-    toast('Apenas administradores podem realizar esta ação.', 'error');
+  if (!isAdminOuGerente()) {
+    toast('Apenas administradores e gerentes podem realizar esta ação.', 'error');
     return false;
   }
   return true;
@@ -1968,7 +1982,7 @@ function toggleEdicaoSorteio() {
 }
 
 function selecionarParaTroca(jogId, time) {
-  if (currentUserRole !== 'admin') return;
+  if (!isAdminOuGerente()) return;
   if (!modoEdicaoSorteio || !currentDraw) return;
 
   if (!editSelecionado) {
@@ -2059,7 +2073,7 @@ function renderTimes(timeSaiuLabel) {
   const res = document.getElementById('sort-result');
   if (!currentDraw) return;
   const { t1, t2, reserva, reservaCompleta, nextBanco, qtd, total } = currentDraw;
-  const isAdmin = currentUserRole === 'admin';
+  const isAdmin = isAdminOuGerente();
 
   // Usuário comum: só vê o sorteio se tiver presença confirmada no jogo correspondente
   if (!isAdmin) {
@@ -2978,22 +2992,29 @@ async function carregarListaUsuarios() {
       return opts;
     };
 
+    const roleLabel = { admin: '👑 Administrador', gerente: '🧑‍💼 Gerente', user: '👤 Usuário' };
+
     el.innerHTML = data.map(u => {
       const jogadorVinculado = appData.jogadores.find(j => j.id === u.jogador_id);
       const tipo = u.tipo_jogador || 'mensalista';
+      const role = u.role || 'user';
       return `
       <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px">
         <div style="display:flex;width:100%;align-items:center;gap:10px">
           <div class="list-item-info">
             <div style="font-size:13px;font-weight:700">${u.email || '(sem e-mail)'}</div>
-            <div style="font-size:11px;color:var(--muted)">${u.role === 'admin' ? '👑 Administrador' : '👤 Usuário'}${jogadorVinculado ? ' · 🏐 ' + jogadorVinculado.nome : ''}</div>
+            <div style="font-size:11px;color:var(--muted)">${roleLabel[role] || roleLabel.user}${jogadorVinculado ? ' · 🏐 ' + jogadorVinculado.nome : ''}</div>
           </div>
-          <button class="btn btn-sm ${u.role === 'admin' ? 'btn-ghost' : 'btn-primary'}"
-            onclick="alternarRoleUsuario('${u.id}','${u.role === 'admin' ? 'user' : 'admin'}')"
+        </div>
+        <div style="width:100%;display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--muted);white-space:nowrap">Papel:</span>
+          <select onchange="alterarRoleUsuario('${u.id}', this.value)"
             ${u.id === currentUser?.id ? 'disabled title="Você não pode alterar seu próprio papel"' : ''}
-            style="${u.id === currentUser?.id ? 'opacity:0.4;cursor:not-allowed' : ''}">
-            ${u.role === 'admin' ? 'Tornar Usuário' : 'Tornar Admin'}
-          </button>
+            style="flex:1;font-size:12px;padding:6px 8px;${u.id === currentUser?.id ? 'opacity:0.5;cursor:not-allowed' : ''}">
+            <option value="admin" ${role === 'admin' ? 'selected' : ''}>👑 Admin</option>
+            <option value="gerente" ${role === 'gerente' ? 'selected' : ''}>🧑‍💼 Gerente</option>
+            <option value="user" ${role === 'user' ? 'selected' : ''}>👤 Usuário</option>
+          </select>
         </div>
         <div style="width:100%;display:flex;align-items:center;gap:8px">
           <span style="font-size:11px;color:var(--muted);white-space:nowrap">Vincular a jogador:</span>
@@ -3044,15 +3065,22 @@ async function vincularJogador(userId, jogadorId) {
   }
 }
 
-async function alternarRoleUsuario(userId, novoRole) {
+async function alterarRoleUsuario(userId, novoRole) {
+  if (userId === currentUser?.id) {
+    toast('Você não pode alterar seu próprio papel.', 'error');
+    carregarListaUsuarios();
+    return;
+  }
   try {
     const { error } = await sbClient.from('user_profiles').update({ role: novoRole }).eq('id', userId);
     if (error) throw error;
-    toast(`Papel atualizado para ${novoRole === 'admin' ? 'Administrador' : 'Usuário'}!`, 'success');
+    const nomes = { admin: 'Administrador', gerente: 'Gerente', user: 'Usuário' };
+    toast(`Papel atualizado para ${nomes[novoRole] || novoRole}!`, 'success');
     carregarListaUsuarios();
   } catch(e) {
     console.error('Erro ao atualizar papel:', e);
     toast('Erro ao atualizar papel do usuário.', 'error');
+    carregarListaUsuarios();
   }
 }
 
@@ -3439,7 +3467,8 @@ async function carregarPerfilUsuario(userId) {
 function atualizarBadgeUsuario() {
   const el = document.getElementById('user-badge');
   if (!el || !currentUser) return;
-  const label = currentUserRole === 'admin' ? '👑' : '👤';
+  const icones = { admin: '👑', gerente: '🧑‍💼', user: '👤' };
+  const label = icones[currentUserRole] || '👤';
   el.textContent = `${label} ${currentUser.email}`;
   el.title = currentUser.email;
 }
