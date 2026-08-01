@@ -526,6 +526,9 @@
           <input type="checkbox" onchange="toggleMostrarSenha(this.checked)" style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent)">
           Mostrar senha
         </label>
+        <div id="auth-senha-hint" style="display:none;font-size:11px;color:var(--muted);margin-top:6px">
+          ℹ️ A senha deve conter letras e números.
+        </div>
       </div>
 
       <div id="auth-error" style="display:none;color:var(--accent2);font-size:13px;margin-bottom:10px;padding:8px 10px;background:rgba(239,68,68,0.1);border-radius:8px"></div>
@@ -3307,15 +3310,18 @@ function setAuthMode(mode) {
   const tabLogin  = document.getElementById('auth-tab-login');
   const tabSignup = document.getElementById('auth-tab-signup');
   const btn       = document.getElementById('auth-submit-btn');
+  const hint      = document.getElementById('auth-senha-hint');
 
   if (mode === 'login') {
     tabLogin.style.background = 'var(--accent)'; tabLogin.style.color = '#000';
     tabSignup.style.background = 'transparent'; tabSignup.style.color = 'var(--text)';
     btn.textContent = 'Entrar';
+    if (hint) hint.style.display = 'none';
   } else {
     tabSignup.style.background = 'var(--accent)'; tabSignup.style.color = '#000';
     tabLogin.style.background = 'transparent'; tabLogin.style.color = 'var(--text)';
     btn.textContent = 'Criar Conta';
+    if (hint) hint.style.display = 'block';
   }
   document.getElementById('auth-error').style.display = 'none';
   document.getElementById('auth-success').style.display = 'none';
@@ -3337,6 +3343,10 @@ async function submitAuth() {
 
   if (!email || !senha) { showAuthMsg('Preencha e-mail e senha.', 'error'); return; }
   if (senha.length < 6)  { showAuthMsg('A senha precisa ter ao menos 6 caracteres.', 'error'); return; }
+  if (authMode === 'signup' && !(/[a-zA-Z]/.test(senha) && /[0-9]/.test(senha))) {
+    showAuthMsg('A senha deve conter letras e números.', 'error');
+    return;
+  }
 
   if (!window.supabase || !sbClient || !sbClient.auth) {
     showAuthMsg('Falha ao carregar a biblioteca do Supabase. Verifique sua conexão e recarregue a página.', 'error');
