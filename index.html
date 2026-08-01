@@ -522,6 +522,10 @@
         <label>Senha</label>
         <input type="password" id="auth-senha" placeholder="Mínimo 6 caracteres" autocomplete="current-password"
           onkeydown="if(event.key==='Enter') submitAuth()">
+        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer;font-size:12px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">
+          <input type="checkbox" onchange="toggleMostrarSenha(this.checked)" style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent)">
+          Mostrar senha
+        </label>
       </div>
 
       <div id="auth-error" style="display:none;color:var(--accent2);font-size:13px;margin-bottom:10px;padding:8px 10px;background:rgba(239,68,68,0.1);border-radius:8px"></div>
@@ -3292,6 +3296,11 @@ let currentUserRole     = 'user';
 let currentUserJogadorId = null; // id do jogador vinculado a esta conta (para confirmar presença)
 let currentUserTipoJogador = 'mensalista'; // 'mensalista' | 'avulso'
 let authMode            = 'login'; // 'login' | 'signup'
+
+function toggleMostrarSenha(mostrar) {
+  const campo = document.getElementById('auth-senha');
+  if (campo) campo.type = mostrar ? 'text' : 'password';
+}
 
 function setAuthMode(mode) {
   authMode = mode;
