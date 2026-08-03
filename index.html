@@ -1763,10 +1763,17 @@ function renderJogos() {
 }
 
 // ===================== SORTEIO =====================
+// Valida se um objeto tem o formato esperado de um sorteio (protege contra dado corrompido/malformado)
+function sorteioValido(draw) {
+  return !!(draw && Array.isArray(draw.t1) && Array.isArray(draw.t2) &&
+    Array.isArray(draw.reserva) && Array.isArray(draw.nextBanco));
+}
+
 let currentDraw = (function() {
   try {
     const saved = localStorage.getItem('volei_draw');
-    return saved ? JSON.parse(saved) : null;
+    const parsed = saved ? JSON.parse(saved) : null;
+    return sorteioValido(parsed) ? parsed : null;
   } catch(e) { return null; }
 })();
 
@@ -2140,7 +2147,7 @@ function renderGanhadorSection() {
 
 // Bloco "Jogo de Referência" — reutilizado no Sorteio e no Placar
 function buildJogoRefHtml() {
-  if (!currentDraw) return '';
+  if (!sorteioValido(currentDraw)) return '';
   return currentDraw.jogoRef
     ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;font-size:13px">
         <span style="font-size:16px">📋</span>
@@ -2158,6 +2165,16 @@ function buildJogoRefHtml() {
 function renderTimes(timeSaiuLabel) {
   const res = document.getElementById('sort-result');
   if (!currentDraw) return;
+
+  // Proteção extra: se o sorteio estiver com formato inválido/corrompido, limpa e sai
+  if (!sorteioValido(currentDraw)) {
+    console.warn('currentDraw com formato inválido — limpando:', currentDraw);
+    currentDraw = null;
+    save();
+    renderSorteioSelect();
+    return;
+  }
+
   const { t1, t2, reserva, reservaCompleta, nextBanco, qtd, total } = currentDraw;
   const isAdmin = isAdminOuGerente();
 
@@ -2609,7 +2626,7 @@ function renderPlacar() {
       <button class="btn btn-ghost btn-full" onclick="resetPlacar()">↺ Resetar Tudo</button>
     </div>
 
-    ${currentDraw ? `
+    ${sorteioValido(currentDraw) ? `
       <div class="card">
         <div class="card-title" style="font-size:15px;margin-bottom:10px">👟 Em Quadra</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
@@ -3776,7 +3793,7 @@ async function carregarDados() {
     if (!appData.config.nomeGrupo) appData.config = {
       nomeGrupo: '', bloquearPresenca: false, maxPresenca: 0, ...appData.config
     };
-    currentDraw = data.sorteio || null;
+    currentDraw = sorteioValido(data.sorteio) ? data.sorteio : null;
 
     // Backup local
     localStorage.setItem('volei_data', JSON.stringify(appData));
@@ -3823,7 +3840,7 @@ function iniciarRealtime() {
         jogos:      Array.isArray(d.jogos)       ? d.jogos      : [],
         config:     d.config || appData.config || {}
       };
-      currentDraw = d.sorteio || null;
+      currentDraw = sorteioValido(d.sorteio) ? d.sorteio : null;
       if (validarSorteioAtual()) save(); // autocorrige e propaga para os demais dispositivos
       localStorage.setItem('volei_data', JSON.stringify(appData));
       currentDraw
