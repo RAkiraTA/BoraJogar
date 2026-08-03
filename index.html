@@ -3854,7 +3854,14 @@ function iniciarRealtime() {
       renderAtual();
       setSyncStatus('ok');
     })
-    .subscribe();
+    .subscribe((status) => {
+      console.log('Realtime status:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log('✅ Tempo real conectado — mudanças de outros dispositivos aparecem automaticamente.');
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.warn('⚠️ Tempo real falhou ao conectar. Verifique se a tabela volei_dados está na publicação supabase_realtime.');
+      }
+    });
 }
 
 // Reaproveita a imagem do header para a tela de login (evita duplicar base64)
