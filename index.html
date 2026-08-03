@@ -2820,12 +2820,47 @@ function renderResumo() {
       ` : '<div class="empty" style="padding:20px 0"><div>Nenhum jogo cadastrado</div></div>'}
     </div>`;
 
+  // "Meu Status" — só para Gerente e Jogador (não para o Presidente)
+  const meuStatusHtml = (() => {
+    if (currentUserRole === 'admin') return '';
+    if (!currentUserJogadorId) return '';
+    const meuJogador = appData.jogadores.find(j => j.id === currentUserJogadorId);
+    if (!meuJogador) return '';
+
+    const minhasPendencias = appData.financeiro
+      .filter(f => f.tipo.startsWith('receita') && f.status !== 'ok' && f.nome.toLowerCase().includes(meuJogador.nome.toLowerCase()))
+      .sort((a,b) => a.data.localeCompare(b.data));
+
+    return `
+    <div class="card">
+      <div class="card-title">🙍 Meu Status</div>
+      <span class="badge ${currentUserTipoJogador === 'avulso' ? 'badge-blue' : 'badge-green'}" style="font-size:13px;padding:6px 14px">
+        ${currentUserTipoJogador === 'avulso' ? '🎟️ Avulso' : '📅 Mensalista'}
+      </span>
+      <div style="margin-top:14px">
+        ${minhasPendencias.length > 0 ? `
+          <div style="font-size:12px;color:var(--accent2);font-weight:700;margin-bottom:8px">⏳ Pagamento Pendente</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${minhasPendencias.map(f => `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px">
+                <span style="font-size:12px;color:var(--muted)">${formatDate(f.data)} · ${formatMes(f.competencia)}</span>
+                <span style="font-weight:900;font-size:14px;color:var(--accent2)">R$ ${formatBRL(f.valor)}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : `
+          <span class="badge badge-green" style="font-size:12px">✅ Nenhum pagamento pendente</span>
+        `}
+      </div>
+    </div>`;
+  })();
+
   if (!hasFullResumo) {
-    document.getElementById('resumo-content').innerHTML = proximoJogoHtml;
+    document.getElementById('resumo-content').innerHTML = proximoJogoHtml + meuStatusHtml;
     return;
   }
 
-  document.getElementById('resumo-content').innerHTML = proximoJogoHtml + `
+  document.getElementById('resumo-content').innerHTML = proximoJogoHtml + meuStatusHtml + `
 
     <!-- 2. Pagamentos Pendentes -->
     <div class="card">
@@ -3022,8 +3057,15 @@ async function carregarListaUsuarios() {
   const el = document.getElementById('user-list-content');
   if (!el) return;
   try {
-    const { data, error } = await sbClient.from('user_profiles').select('*').order('email');
+    const { data: rawData, error } = await sbClient.from('user_profiles').select('*');
     if (error) throw error;
+
+    // Ordem alfabética pelo nome (nome completo → apelido → e-mail como fallback)
+    const data = [...rawData].sort((a, b) => {
+      const nomeA = (a.nome_completo || a.apelido || a.email || '').toLowerCase();
+      const nomeB = (b.nome_completo || b.apelido || b.email || '').toLowerCase();
+      return nomeA.localeCompare(nomeB, 'pt-BR');
+    });
 
     const jogadoresOptions = (nome_atual) => {
       let opts = `<option value="">— Nenhum —</option>`;
@@ -3039,12 +3081,22 @@ async function carregarListaUsuarios() {
       const jogadorVinculado = appData.jogadores.find(j => j.id === u.jogador_id);
       const tipo = u.tipo_jogador || 'mensalista';
       const role = u.role || 'user';
+      const nomeExibido = u.nome_completo || u.apelido || '(sem nome cadastrado)';
+
+      const dadosPerfil = [
+        u.apelido && u.nome_completo ? `Apelido: ${u.apelido}` : '',
+        u.data_nascimento ? `🎂 ${formatDate(u.data_nascimento)}` : ''
+      ].filter(Boolean).join(' · ');
+
       return `
       <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px">
         <div style="display:flex;width:100%;align-items:center;gap:10px">
+          <div class="player-avatar" style="width:36px;height:36px;font-size:12px">${avatarInicial(nomeExibido)}</div>
           <div class="list-item-info">
-            <div style="font-size:13px;font-weight:700">${u.email || '(sem e-mail)'}</div>
-            <div style="font-size:11px;color:var(--muted)">${roleLabel[role] || roleLabel.user}${jogadorVinculado ? ' · 🏐 ' + jogadorVinculado.nome : ''}</div>
+            <div style="font-size:14px;font-weight:700">${nomeExibido}</div>
+            <div style="font-size:11px;color:var(--muted)">${u.email || '(sem e-mail)'}</div>
+            ${dadosPerfil ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${dadosPerfil}</div>` : ''}
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${roleLabel[role] || roleLabel.user}${jogadorVinculado ? ' · 🏐 ' + jogadorVinculado.nome : ''}</div>
           </div>
         </div>
         <div style="width:100%;display:flex;align-items:center;gap:8px">
