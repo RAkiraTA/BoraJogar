@@ -923,6 +923,16 @@ function toast(msg, type = 'success') {
 // ===================== DELETE CONFIRMAÇÃO =====================
 let pendingDelete = null;
 
+// Limpa o sorteio atual se ele referenciar um jogo que acabou de ser encerrado ou excluído
+function limparSorteioSeReferencia(jogoId) {
+  if (currentDraw && currentDraw.jogoId === jogoId) {
+    currentDraw = null;
+    modoEdicaoSorteio = false;
+    editSelecionado = null;
+    pendingWinner = null;
+  }
+}
+
 function solicitarDelete(tipo, id, desc) {
   pendingDelete = { tipo, id };
   document.getElementById('delete-desc').textContent = desc || 'Tem certeza que deseja excluir este item? Esta ação não pode ser desfeita.';
@@ -941,8 +951,10 @@ function confirmarDelete() {
     save(); renderJogadores();
     toast('Jogador excluído!');
   } else if (tipo === 'jogo') {
+    limparSorteioSeReferencia(id);
     appData.jogos = appData.jogos.filter(j => j.id !== id);
     save(); renderJogos(); renderSorteioSelect();
+    if (document.getElementById('sec-placar')?.classList.contains('active')) renderPlacar();
     toast('Jogo excluído!');
   }
   fecharModal('modal-confirmar-delete');
@@ -1597,11 +1609,15 @@ function confirmarEncerrar(id) {
       if (jogo.presencas[id] && !(jogo.presentes || {})[id]) ausencias[id] = true;
     });
     jogo.ausencias = ausencias;
+
+    limparSorteioSeReferencia(id); // limpa o sorteio se ele referenciava este jogo
+
     save();
     jogoParaEncerrar = null;
     jogoExpandido = null;
     renderJogos();
     renderSorteioSelect();
+    if (document.getElementById('sec-placar')?.classList.contains('active')) renderPlacar();
     toast('Jogo encerrado! Acesse o Resumo para ver o histórico.', 'success');
   }
 }
@@ -1730,12 +1746,12 @@ function renderSorteioSelect() {
 
   if (formCard) formCard.style.display = isAdmin ? '' : 'none';
 
-  if (!isAdmin && !currentDraw) {
+  if (!currentDraw) {
     document.getElementById('sort-result').innerHTML = `
       <div class="card">
         <div class="empty" style="padding:24px 0">
           <div class="empty-icon">🎲</div>
-          <div>Aguardando o Presidente/Gerente realizar o sorteio.</div>
+          <div>${isAdmin ? 'Sorteio pendente — preencha o formulário acima.' : 'Aguardando o Presidente/Gerente realizar o sorteio.'}</div>
         </div>
       </div>`;
   }
@@ -2586,7 +2602,7 @@ function renderPlacar() {
           </div>
         ` : ''}
       </div>
-    ` : '<div class="empty"><div class="empty-icon">🏐</div><div>Faça um sorteio para ver os times em quadra</div></div>'}
+    ` : '<div class="empty"><div class="empty-icon">🏐</div><div>Sorteio pendente</div></div>'}
   `;
 }
 
@@ -3770,8 +3786,11 @@ function iniciarRealtime() {
         jogos:      Array.isArray(d.jogos)       ? d.jogos      : [],
         config:     d.config || appData.config || {}
       };
-      if (d.sorteio) currentDraw = d.sorteio;
+      currentDraw = d.sorteio || null;
       localStorage.setItem('volei_data', JSON.stringify(appData));
+      currentDraw
+        ? localStorage.setItem('volei_draw', JSON.stringify(currentDraw))
+        : localStorage.removeItem('volei_draw');
       renderAtual();
       setSyncStatus('ok');
     })
