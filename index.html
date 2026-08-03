@@ -565,7 +565,7 @@
 <aside class="sidebar">
   <button class="nav-btn active" onclick="showSection('resumo',this)"><span class="nav-icon">📊</span><span class="nav-label">Resumo</span></button>
   <button class="nav-btn" onclick="showSection('placar',this)"><span class="nav-icon">🏆</span><span class="nav-label">Placar</span></button>
-  <button class="nav-btn" onclick="showSection('sorteio',this)"><span class="nav-icon">🎲</span><span class="nav-label">Sorteio</span></button>
+  <button class="nav-btn nav-manager-only" onclick="showSection('sorteio',this)"><span class="nav-icon">🎲</span><span class="nav-label">Sorteio</span></button>
   <button class="nav-btn" onclick="showSection('classificacao',this)"><span class="nav-icon">🥇</span><span class="nav-label">Classificação</span></button>
   <button class="nav-btn" onclick="showSection('perfil',this)"><span class="nav-icon">🙍</span><span class="nav-label">Perfil</span></button>
   <hr class="nav-divider">
@@ -692,7 +692,7 @@
         </div>
       </div>
       <div class="form-group">
-        <label>Observação</label>
+        <label>Nome do Jogo</label>
         <input type="text" id="jogo-obs" placeholder="Ex: Partida treino, torneio...">
       </div>
       <button class="btn btn-primary btn-full mt-10" onclick="addJogo()">✚ Criar Jogo</button>
@@ -853,7 +853,11 @@ function uid() {
 
 // ===================== UI =====================
 const ADMIN_ONLY_SECTIONS   = ['financeiro', 'usuarios', 'configuracao'];
-const MANAGER_SECTIONS      = ['jogos', 'jogadores']; // admin OU gerente
+const MANAGER_SECTIONS      = ['jogos', 'jogadores', 'sorteio']; // admin OU gerente
+
+// Nomes exibidos para cada papel (o valor salvo no banco continua admin/gerente/user)
+const ROLE_LABELS = { admin: 'Presidente', gerente: 'Gerente', user: 'Jogador' };
+const ROLE_ICONS  = { admin: '👑', gerente: '🧑‍💼', user: '👤' };
 
 function isAdminOuGerente() {
   return currentUserRole === 'admin' || currentUserRole === 'gerente';
@@ -861,11 +865,11 @@ function isAdminOuGerente() {
 
 function showSection(id, btn) {
   if (ADMIN_ONLY_SECTIONS.includes(id) && currentUserRole !== 'admin') {
-    toast('Acesso restrito a administradores.', 'error');
+    toast('Acesso restrito ao Presidente.', 'error');
     return;
   }
   if (MANAGER_SECTIONS.includes(id) && !isAdminOuGerente()) {
-    toast('Acesso restrito a administradores e gerentes.', 'error');
+    toast('Acesso restrito a Presidente e Gerente.', 'error');
     return;
   }
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -1716,7 +1720,7 @@ function renderSorteioSelect() {
       <div class="card">
         <div class="empty" style="padding:24px 0">
           <div class="empty-icon">🎲</div>
-          <div>Aguardando o administrador realizar o sorteio.</div>
+          <div>Aguardando o Presidente/Gerente realizar o sorteio.</div>
         </div>
       </div>`;
   }
@@ -1761,7 +1765,7 @@ function buildReserva(pool, qtd, criterio) {
 // Bloqueia ações de sorteio para quem não é admin/gerente (defesa extra além da UI oculta)
 function exigirAdmin() {
   if (!isAdminOuGerente()) {
-    toast('Apenas administradores e gerentes podem realizar esta ação.', 'error');
+    toast('Apenas Presidente e Gerente podem realizar esta ação.', 'error');
     return false;
   }
   return true;
@@ -2069,6 +2073,23 @@ function renderGanhadorSection() {
     </div>`;
 }
 
+// Bloco "Jogo de Referência" — reutilizado no Sorteio e no Placar
+function buildJogoRefHtml() {
+  if (!currentDraw) return '';
+  return currentDraw.jogoRef
+    ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;font-size:13px">
+        <span style="font-size:16px">📋</span>
+        <div>
+          <span style="font-weight:700;color:var(--text)">Jogo de referência:</span>
+          <span style="color:var(--accent);font-weight:700"> ${formatDate(currentDraw.jogoRef.data)}</span>
+          <span style="color:var(--muted)"> — ${formatMes(currentDraw.jogoRef.competencia)}${currentDraw.jogoRef.obs ? ' · '+currentDraw.jogoRef.obs : ''}</span>
+        </div>
+      </div>`
+    : `<div style="padding:6px 12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;font-size:12px;color:var(--muted)">
+        📋 Sem jogo de referência — usando todos os jogadores ativos
+      </div>`;
+}
+
 function renderTimes(timeSaiuLabel) {
   const res = document.getElementById('sort-result');
   if (!currentDraw) return;
@@ -2088,7 +2109,7 @@ function renderTimes(timeSaiuLabel) {
             <div class="empty-icon">🔒</div>
             <div>${currentUserJogadorId
               ? 'O sorteio só é exibido para quem confirmou presença no jogo correspondente.'
-              : 'Sua conta ainda não está vinculada a um jogador. Peça ao administrador para vincular.'}</div>
+              : 'Sua conta ainda não está vinculada a um jogador. Peça ao Presidente para vincular.'}</div>
           </div>
         </div>`;
       return;
@@ -2096,18 +2117,7 @@ function renderTimes(timeSaiuLabel) {
   }
 
   // Cabeçalho: jogo de referência
-  const jogoRefHtml = currentDraw.jogoRef
-    ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;font-size:13px">
-        <span style="font-size:16px">📋</span>
-        <div>
-          <span style="font-weight:700;color:var(--text)">Jogo de referência:</span>
-          <span style="color:var(--accent);font-weight:700"> ${formatDate(currentDraw.jogoRef.data)}</span>
-          <span style="color:var(--muted)"> — ${formatMes(currentDraw.jogoRef.competencia)}${currentDraw.jogoRef.obs ? ' · '+currentDraw.jogoRef.obs : ''}</span>
-        </div>
-      </div>`
-    : `<div style="padding:6px 12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;font-size:12px;color:var(--muted)">
-        📋 Sem jogo de referência — usando todos os jogadores ativos
-      </div>`;
+  const jogoRefHtml = buildJogoRefHtml();
 
   const destaqueHtml = timeSaiuLabel ? `
     <div style="text-align:center;padding:8px;background:rgba(59,130,246,0.1);border-radius:8px;margin-bottom:12px;font-size:13px;font-weight:700;color:var(--blue)">
@@ -2442,6 +2452,8 @@ function resetPlacar() {
 function renderPlacar() {
   const isTimer = placar.modo === 'timer';
   document.getElementById('placar-content').innerHTML = `
+    ${buildJogoRefHtml()}
+
     <div class="card">
       <div class="card-title">🏆 Placar</div>
 
@@ -2542,6 +2554,22 @@ function renderPlacar() {
             ${currentDraw.t2.map(j => `<div style="padding:3px 0;font-size:13px;font-weight:700">${j.nome}${j.posicao?`<span style="color:var(--muted);font-size:10px"> · ${j.posicao}</span>`:''}</div>`).join('')}
           </div>
         </div>
+
+        ${currentDraw.reserva && currentDraw.reserva.length > 0 ? `
+          <hr class="divider">
+          <div style="font-size:12px;color:var(--accent3);font-weight:700;margin-bottom:6px">⏭️ Próximo Time</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+            ${currentDraw.reserva.map(j => `<div style="padding:3px 0;font-size:13px;font-weight:700">${j.nome}${j.posicao?`<span style="color:var(--muted);font-size:10px"> · ${j.posicao}</span>`:''}</div>`).join('')}
+          </div>
+        ` : ''}
+
+        ${currentDraw.nextBanco && currentDraw.nextBanco.length > 0 ? `
+          <hr class="divider">
+          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">📋 Fila de Espera (${currentDraw.nextBanco.length})</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+            ${currentDraw.nextBanco.map(j => `<div style="padding:3px 0;font-size:13px;font-weight:700;color:var(--muted)">${j.nome}${j.posicao?`<span style="font-size:10px"> · ${j.posicao}</span>`:''}</div>`).join('')}
+          </div>
+        ` : ''}
       </div>
     ` : '<div class="empty"><div class="empty-icon">🏐</div><div>Faça um sorteio para ver os times em quadra</div></div>'}
   `;
@@ -2684,8 +2712,22 @@ function toggleResumoConfirmados() { resumoConfirmadosAberto = !resumoConfirmado
 function toggleResumoPendentes()   { resumoPendentesAberto   = !resumoPendentesAberto;   renderResumo(); }
 
 function renderResumo() {
-  const totalReceitas = appData.financeiro.filter(f => f.tipo.startsWith('receita')).reduce((s,f) => s+f.valor, 0);
-  const totalCustos   = appData.financeiro.filter(f => f.tipo === 'custo').reduce((s,f) => s+f.valor, 0);
+  const totalReceitasGeral = appData.financeiro.filter(f => f.tipo.startsWith('receita')).reduce((s,f) => s+f.valor, 0);
+  const totalCustosGeral   = appData.financeiro.filter(f => f.tipo === 'custo').reduce((s,f) => s+f.valor, 0);
+
+  // Última competência com lançamentos (usada no resumo financeiro do Gerente)
+  const competenciasDisponiveis = [...new Set(appData.financeiro.map(f => f.competencia))].sort();
+  const ultimaCompetencia = competenciasDisponiveis[competenciasDisponiveis.length - 1];
+
+  const hasFullResumo = isAdminOuGerente();      // Presidente e Gerente veem a estrutura completa
+  const isPresidente  = currentUserRole === 'admin'; // Só o Presidente vê o total geral (não escopado)
+
+  // Totais exibidos no card "Resumo Financeiro": Presidente = geral, Gerente = só a última competência
+  const financeiroEscopo = (!isPresidente && ultimaCompetencia)
+    ? appData.financeiro.filter(f => f.competencia === ultimaCompetencia)
+    : appData.financeiro;
+  const totalReceitas = isPresidente ? totalReceitasGeral : financeiroEscopo.filter(f => f.tipo.startsWith('receita')).reduce((s,f) => s+f.valor, 0);
+  const totalCustos   = isPresidente ? totalCustosGeral   : financeiroEscopo.filter(f => f.tipo === 'custo').reduce((s,f) => s+f.valor, 0);
   const saldo = totalReceitas - totalCustos;
 
   // Próximo jogo
@@ -2709,7 +2751,6 @@ function renderResumo() {
 
   const tipoLabel = { 'receita-mensalidade': 'Mensalidade', 'receita-avulso': 'Avulso' };
   const tipoBadge = { 'receita-mensalidade': 'badge-green', 'receita-avulso': 'badge-blue' };
-  const isAdmin = currentUserRole === 'admin';
 
   const proximoJogoHtml = `
     <div class="card">
@@ -2723,7 +2764,7 @@ function renderResumo() {
           title="${resumoConfirmadosAberto ? 'Fechar lista' : 'Ver confirmados'}">
           ${confirmados.length} confirmado${confirmados.length !== 1 ? 's' : ''} ${resumoConfirmadosAberto ? '▲' : '▼'}
         </span>
-        ${isAdmin ? `
+        ${hasFullResumo ? `
         <span class="badge badge-green" style="font-size:13px;padding:6px 14px;margin-left:6px">
           ${presentesFisicos.length} presente${presentesFisicos.length !== 1 ? 's' : ''}
         </span>` : ''}
@@ -2779,7 +2820,7 @@ function renderResumo() {
       ` : '<div class="empty" style="padding:20px 0"><div>Nenhum jogo cadastrado</div></div>'}
     </div>`;
 
-  if (!isAdmin) {
+  if (!hasFullResumo) {
     document.getElementById('resumo-content').innerHTML = proximoJogoHtml;
     return;
   }
@@ -2820,7 +2861,7 @@ function renderResumo() {
 
     <!-- 3. Resumo Financeiro -->
     <div class="card">
-      <div class="card-title">💰 Resumo Financeiro</div>
+      <div class="card-title">💰 Resumo Financeiro${!isPresidente && ultimaCompetencia ? ` — ${formatMes(ultimaCompetencia)}` : ''}</div>
       <div class="summary-grid">
         <div class="summary-card">
           <div class="summary-value" style="color:var(--accent3)">R$ ${formatBRL(totalReceitas)}</div>
@@ -2966,8 +3007,8 @@ function renderUsuarios() {
     <div class="card">
       <div class="card-title">🧑‍💼 Gerenciar Usuários</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">
-        Defina o papel (admin/usuário), o jogador vinculado e se cada conta é <b>mensalista</b> ou
-        <b>avulsa</b>. Novas contas entram como <b>usuário / mensalista</b> por padrão.
+        Defina o papel (Presidente/Gerente/Jogador), o jogador vinculado e se cada conta é <b>mensalista</b> ou
+        <b>avulsa</b>. Novas contas entram como <b>Jogador / mensalista</b> por padrão.
       </div>
       <div id="user-list-content">
         <div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">Carregando usuários...</div>
@@ -2992,7 +3033,7 @@ async function carregarListaUsuarios() {
       return opts;
     };
 
-    const roleLabel = { admin: '👑 Administrador', gerente: '🧑‍💼 Gerente', user: '👤 Usuário' };
+    const roleLabel = { admin: `${ROLE_ICONS.admin} ${ROLE_LABELS.admin}`, gerente: `${ROLE_ICONS.gerente} ${ROLE_LABELS.gerente}`, user: `${ROLE_ICONS.user} ${ROLE_LABELS.user}` };
 
     el.innerHTML = data.map(u => {
       const jogadorVinculado = appData.jogadores.find(j => j.id === u.jogador_id);
@@ -3011,9 +3052,9 @@ async function carregarListaUsuarios() {
           <select onchange="alterarRoleUsuario('${u.id}', this.value)"
             ${u.id === currentUser?.id ? 'disabled title="Você não pode alterar seu próprio papel"' : ''}
             style="flex:1;font-size:12px;padding:6px 8px;${u.id === currentUser?.id ? 'opacity:0.5;cursor:not-allowed' : ''}">
-            <option value="admin" ${role === 'admin' ? 'selected' : ''}>👑 Admin</option>
+            <option value="admin" ${role === 'admin' ? 'selected' : ''}>👑 Presidente</option>
             <option value="gerente" ${role === 'gerente' ? 'selected' : ''}>🧑‍💼 Gerente</option>
-            <option value="user" ${role === 'user' ? 'selected' : ''}>👤 Usuário</option>
+            <option value="user" ${role === 'user' ? 'selected' : ''}>👤 Jogador</option>
           </select>
         </div>
         <div style="width:100%;display:flex;align-items:center;gap:8px">
@@ -3074,7 +3115,7 @@ async function alterarRoleUsuario(userId, novoRole) {
   try {
     const { error } = await sbClient.from('user_profiles').update({ role: novoRole }).eq('id', userId);
     if (error) throw error;
-    const nomes = { admin: 'Administrador', gerente: 'Gerente', user: 'Usuário' };
+    const nomes = ROLE_LABELS;
     toast(`Papel atualizado para ${nomes[novoRole] || novoRole}!`, 'success');
     carregarListaUsuarios();
   } catch(e) {
@@ -3088,7 +3129,7 @@ async function alterarRoleUsuario(userId, novoRole) {
 // ===================== CONFIRMAR PRESENÇA (própria) =====================
 async function confirmarMinhaPresenca(jogoId, valor) {
   if (!currentUserJogadorId) {
-    toast('Sua conta ainda não está vinculada a um jogador. Peça ao administrador para vincular.', 'error');
+    toast('Sua conta ainda não está vinculada a um jogador. Peça ao Presidente para vincular.', 'error');
     return;
   }
   try {
@@ -3182,7 +3223,7 @@ async function salvarPerfil() {
 
 function limparDados() {
   if (currentUserRole !== 'admin') {
-    toast('Apenas administradores podem limpar os dados.', 'error');
+    toast('Apenas o Presidente pode limpar os dados.', 'error');
     return;
   }
   if (!confirm('⚠️ Atenção!\n\nEsta ação irá apagar TODOS os dados:\n• Jogadores\n• Jogos e presenças\n• Lançamentos financeiros\n\nEsta ação NÃO pode ser desfeita!\n\nDeseja continuar?')) return;
@@ -3467,10 +3508,9 @@ async function carregarPerfilUsuario(userId) {
 function atualizarBadgeUsuario() {
   const el = document.getElementById('user-badge');
   if (!el || !currentUser) return;
-  const icones = { admin: '👑', gerente: '🧑‍💼', user: '👤' };
-  const label = icones[currentUserRole] || '👤';
-  el.textContent = `${label} ${currentUser.email}`;
-  el.title = currentUser.email;
+  const icone = ROLE_ICONS[currentUserRole] || '👤';
+  el.textContent = `${icone} ${currentUser.email}`;
+  el.title = `${ROLE_LABELS[currentUserRole] || 'Jogador'} · ${currentUser.email}`;
 }
 
 // Retorna true se o usuário está logado (e prossegue o carregamento do app)
