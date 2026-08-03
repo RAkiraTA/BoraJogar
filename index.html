@@ -949,13 +949,15 @@ function limparSorteioManual() {
   toast('Sorteio limpo!', 'success');
 }
 
-// Autocorreção: se o sorteio salvo referenciar um jogo já encerrado ou inexistente
-// (ex: dado antigo salvo antes desta trava existir), limpa automaticamente.
+// Autocorreção: se o sorteio salvo referenciar um jogo já encerrado, limpa automaticamente.
+// IMPORTANTE: só limpa quando o jogo É ENCONTRADO e está encerrado — nunca por "não encontrado",
+// pois isso pode ser apenas um atraso momentâneo de sincronização (não uma exclusão real).
+// A limpeza por exclusão real já é tratada de forma determinística em limparSorteioSeReferencia().
 // Retorna true se algo foi corrigido (para então persistir a correção).
 function validarSorteioAtual() {
   if (!currentDraw || !currentDraw.jogoId) return false;
   const jogoRef = appData.jogos.find(j => j.id === currentDraw.jogoId);
-  if (!jogoRef || jogoRef.encerrado) {
+  if (jogoRef && jogoRef.encerrado) {
     currentDraw = null;
     modoEdicaoSorteio = false;
     editSelecionado = null;
@@ -3774,7 +3776,7 @@ async function carregarDados() {
     if (!appData.config.nomeGrupo) appData.config = {
       nomeGrupo: '', bloquearPresenca: false, maxPresenca: 0, ...appData.config
     };
-    if (data.sorteio) currentDraw = data.sorteio;
+    currentDraw = data.sorteio || null;
 
     // Backup local
     localStorage.setItem('volei_data', JSON.stringify(appData));
