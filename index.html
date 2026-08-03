@@ -567,12 +567,13 @@
   <button class="nav-btn" onclick="showSection('placar',this)"><span class="nav-icon">🏆</span><span class="nav-label">Placar</span></button>
   <button class="nav-btn nav-manager-only" onclick="showSection('sorteio',this)"><span class="nav-icon">🎲</span><span class="nav-label">Sorteio</span></button>
   <button class="nav-btn" onclick="showSection('classificacao',this)"><span class="nav-icon">🥇</span><span class="nav-label">Classificação</span></button>
-  <button class="nav-btn" onclick="showSection('perfil',this)"><span class="nav-icon">🙍</span><span class="nav-label">Perfil</span></button>
   <hr class="nav-divider">
   <button class="nav-btn nav-manager-only" onclick="showSection('jogos',this)"><span class="nav-icon">🏐</span><span class="nav-label">Jogos</span></button>
   <button class="nav-btn nav-manager-only" onclick="showSection('jogadores',this)"><span class="nav-icon">👥</span><span class="nav-label">Jogadores</span></button>
   <button class="nav-btn nav-admin-only" onclick="showSection('financeiro',this)"><span class="nav-icon">💰</span><span class="nav-label">Financeiro</span></button>
   <button class="nav-btn nav-admin-only" onclick="showSection('usuarios',this)"><span class="nav-icon">🧑‍💼</span><span class="nav-label">Usuários</span></button>
+  <button class="nav-btn" onclick="showSection('perfil',this)"><span class="nav-icon">🙍</span><span class="nav-label">Perfil</span></button>
+  <button class="nav-btn nav-nonadmin-only" onclick="showSection('regras',this)"><span class="nav-icon">📜</span><span class="nav-label">Regras do Jogo</span></button>
   <button class="nav-btn nav-admin-only" onclick="showSection('configuracao',this)"><span class="nav-icon">⚙️</span><span class="nav-label">Configuração</span></button>
 </aside>
 
@@ -596,6 +597,11 @@
   <!-- PERFIL -->
   <div class="section" id="sec-perfil">
     <div id="perfil-content"></div>
+  </div>
+
+  <!-- REGRAS DO JOGO (view-only p/ Gerente e Jogador) -->
+  <div class="section" id="sec-regras">
+    <div id="regras-content"></div>
   </div>
 
   <div class="section" id="sec-usuarios">
@@ -854,6 +860,7 @@ function uid() {
 // ===================== UI =====================
 const ADMIN_ONLY_SECTIONS   = ['financeiro', 'usuarios', 'configuracao'];
 const MANAGER_SECTIONS      = ['jogos', 'jogadores', 'sorteio']; // admin OU gerente
+const NONADMIN_ONLY_SECTIONS = ['regras']; // gerente OU jogador (não o Presidente)
 
 // Nomes exibidos para cada papel (o valor salvo no banco continua admin/gerente/user)
 const ROLE_LABELS = { admin: 'Presidente', gerente: 'Gerente', user: 'Jogador' };
@@ -872,6 +879,10 @@ function showSection(id, btn) {
     toast('Acesso restrito a Presidente e Gerente.', 'error');
     return;
   }
+  if (NONADMIN_ONLY_SECTIONS.includes(id) && currentUserRole === 'admin') {
+    toast('O Presidente edita as Regras do Jogo pela aba Configuração.', 'error');
+    return;
+  }
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('sec-' + id).classList.add('active');
@@ -885,6 +896,7 @@ function showSection(id, btn) {
   if (id === 'usuarios') renderUsuarios();
   if (id === 'configuracao') renderConfiguracao();
   if (id === 'perfil') renderPerfil();
+  if (id === 'regras') renderRegrasJogo();
 }
 
 // Mostra/oculta abas administrativas conforme o papel do usuário logado
@@ -896,6 +908,9 @@ function applyRoleUI() {
   });
   document.querySelectorAll('.nav-manager-only').forEach(el => {
     el.style.display = isManager ? '' : 'none';
+  });
+  document.querySelectorAll('.nav-nonadmin-only').forEach(el => {
+    el.style.display = isAdmin ? 'none' : '';
   });
 }
 
@@ -2990,6 +3005,21 @@ function renderConfiguracao() {
         </div>` : ''}
     </div>
 
+    <!-- Regras do Jogo (texto livre, editável só pelo Presidente) -->
+    <div class="card">
+      <div class="card-title">📜 Regras do Jogo</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">
+        Escreva aqui tudo sobre as regras do jogo. Gerentes e Jogadores verão este texto
+        (somente leitura) na aba "Regras do Jogo".
+      </div>
+      <div class="form-group">
+        <textarea id="cfg-regras-jogo" rows="10" placeholder="Ex: Times de 4 jogadores, sistema de rodízio, quem perde sai..."
+          style="width:100%;resize:vertical;font-family:'Nunito',sans-serif;font-size:14px;line-height:1.6;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text)"
+          onchange="appData.config.regrasJogo=this.value;save()">${(cfg.regrasJogo || '').replace(/</g,'&lt;')}</textarea>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">As alterações são salvas automaticamente ao sair do campo.</div>
+    </div>
+
     <!-- Backup -->
     <div class="card">
       <div class="card-title">💾 Backup de Dados</div>
@@ -3032,6 +3062,22 @@ function renderConfiguracao() {
         ` : ''}
 
       </div>
+    </div>
+  `;
+}
+
+// ===================== REGRAS DO JOGO (view-only p/ Gerente e Jogador) =====================
+function renderRegrasJogo() {
+  const el = document.getElementById('regras-content');
+  if (!el) return;
+  const texto = (appData.config?.regrasJogo || '').trim();
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title">📜 Regras do Jogo</div>
+      ${texto
+        ? `<div style="white-space:pre-wrap;font-size:14px;line-height:1.7;color:var(--text)">${texto.replace(/</g,'&lt;')}</div>`
+        : `<div class="empty" style="padding:20px 0"><div class="empty-icon">📜</div><div>O Presidente ainda não cadastrou as regras do jogo.</div></div>`}
     </div>
   `;
 }
@@ -3706,6 +3752,7 @@ function renderAtual() {
   if (id === 'placar')        renderPlacar();
   if (id === 'usuarios')      renderUsuarios();
   if (id === 'configuracao')  renderConfiguracao();
+  if (id === 'regras')        renderRegrasJogo();
   atualizarHeaderGrupo();
 }
 
