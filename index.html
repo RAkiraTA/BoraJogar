@@ -3244,12 +3244,10 @@ async function carregarListaUsuarios() {
             ${jogadoresOptions(u.jogador_id)}
           </select>
         </div>
-        ${(!u.jogador_id && u.apelido) ? `
-        <button class="btn btn-sm btn-ghost btn-full" onclick="criarJogadorParaUsuario('${u.id}','${u.apelido.replace(/'/g,"\\'")}')"
+        <button class="btn btn-sm btn-ghost btn-full" onclick="criarJogadorParaUsuario('${u.id}','${(u.nome_completo||'').replace(/'/g,"\\'")}','${(u.apelido||'').replace(/'/g,"\\'")}',${u.jogador_id ? 'true' : 'false'})"
           style="font-size:11px;color:var(--accent3);border-color:rgba(16,185,129,0.3)">
-          🏐 Cadastrar jogador "${u.apelido}" automaticamente
+          ➕ Adicionar Jogador
         </button>
-        ` : ''}
         <div style="width:100%;display:flex;align-items:center;gap:8px">
           <span style="font-size:11px;color:var(--muted);white-space:nowrap">Tipo:</span>
           <div style="display:flex;gap:6px;flex:1">
@@ -3267,10 +3265,18 @@ async function carregarListaUsuarios() {
   }
 }
 
-// Cria um jogador (usando o Apelido como nome) e vincula à conta de outro usuário — ação do Presidente
-async function criarJogadorParaUsuario(userId, apelido) {
-  if (!apelido) return;
-  const novoJogador = { id: uid(), nome: apelido, posicao: '', nota: 0, ativo: true };
+// Cria um jogador (Nome Completo + Apelido) e vincula à conta de um usuário — ação do Presidente
+async function criarJogadorParaUsuario(userId, nomeCompleto, apelido, jaVinculado) {
+  const nome = nomeJogadorCombinado(nomeCompleto, apelido);
+  if (!nome) {
+    toast('Esta conta ainda não tem Nome Completo nem Apelido cadastrado no Perfil.', 'error');
+    return;
+  }
+  if (jaVinculado) {
+    if (!confirm(`Esta conta já está vinculada a um jogador.\n\nCriar "${nome}" mesmo assim vai gerar um NOVO jogador e substituir o vínculo atual.\n\nDeseja continuar?`)) return;
+  }
+
+  const novoJogador = { id: uid(), nome: nome, posicao: '', nota: 0, ativo: true };
   appData.jogadores.push(novoJogador);
 
   appData.jogos.forEach(jogo => {
@@ -3289,7 +3295,7 @@ async function criarJogadorParaUsuario(userId, apelido) {
     const { error } = await sbClient.from('user_profiles').update({ jogador_id: novoJogador.id }).eq('id', userId);
     if (error) throw error;
     if (userId === currentUser?.id) currentUserJogadorId = novoJogador.id;
-    toast(`Jogador "${apelido}" cadastrado e vinculado!`, 'success');
+    toast(`Jogador "${nome}" cadastrado e vinculado!`, 'success');
     carregarListaUsuarios();
   } catch(e) {
     console.error('Erro ao vincular jogador:', e);
@@ -3411,15 +3417,26 @@ async function renderPerfil() {
   }
 }
 
-// Cria e vincula automaticamente um jogador para esta conta, usando o Apelido como nome.
+// Combina Nome Completo + Apelido no formato "Nome Completo (Apelido)" para cadastrar o jogador
+function nomeJogadorCombinado(nomeCompleto, apelido) {
+  nomeCompleto = (nomeCompleto || '').trim();
+  apelido = (apelido || '').trim();
+  if (nomeCompleto && apelido && nomeCompleto.toLowerCase() !== apelido.toLowerCase()) {
+    return `${nomeCompleto} (${apelido})`;
+  }
+  return nomeCompleto || apelido || '';
+}
+
+// Cria e vincula automaticamente um jogador para esta conta, usando Nome Completo + Apelido.
 // Só age se a conta ainda não estiver vinculada a um jogador existente.
-async function garantirJogadorVinculado(apelido) {
-  if (!apelido) return;
+async function garantirJogadorVinculado(nomeCompleto, apelido) {
+  const nome = nomeJogadorCombinado(nomeCompleto, apelido);
+  if (!nome) return;
 
   // Já vinculado a um jogador que ainda existe? Não faz nada (evita duplicar/sobrescrever).
   if (currentUserJogadorId && appData.jogadores.some(j => j.id === currentUserJogadorId)) return;
 
-  const novoJogador = { id: uid(), nome: apelido, posicao: '', nota: 0, ativo: true };
+  const novoJogador = { id: uid(), nome: nome, posicao: '', nota: 0, ativo: true };
   appData.jogadores.push(novoJogador);
 
   // Adiciona o novo jogador a todos os jogos não encerrados (mesma lógica do cadastro manual)
@@ -3439,7 +3456,7 @@ async function garantirJogadorVinculado(apelido) {
     const { error } = await sbClient.from('user_profiles').update({ jogador_id: novoJogador.id }).eq('id', currentUser.id);
     if (error) throw error;
     currentUserJogadorId = novoJogador.id;
-    toast(`Jogador "${apelido}" cadastrado e vinculado à sua conta!`, 'success');
+    toast(`Jogador "${nome}" cadastrado e vinculado à sua conta!`, 'success');
   } catch(e) {
     console.error('Erro ao vincular jogador automaticamente:', e);
     toast('Jogador cadastrado, mas houve um erro ao vincular à sua conta.', 'error');
@@ -3464,7 +3481,7 @@ async function salvarPerfil() {
     }).eq('id', currentUser.id);
     if (error) throw error;
     toast('Perfil atualizado com sucesso!', 'success');
-    await garantirJogadorVinculado(apelido);
+    await garantirJogadorVinculado(nomeCompleto, apelido);
   } catch(e) {
     console.error('Erro ao salvar perfil:', e);
     toast('Erro ao salvar perfil: ' + (e.message || 'tente novamente.'), 'error');
