@@ -1845,6 +1845,13 @@ function exigirAdmin() {
 
 function sortear() {
   if (!exigirAdmin()) return;
+
+  if (currentDraw) {
+    if (!confirm('⚠️ Já existe um sorteio em andamento!\n\nRealizar um novo sorteio vai substituir os times atuais — essa ação não pode ser desfeita.\n\nDeseja continuar mesmo assim?')) {
+      return;
+    }
+  }
+
   const jogoId = document.getElementById('sort-jogo').value;
   const qtd = parseInt(document.getElementById('sort-qtd').value);
   const criterio = document.getElementById('sort-criterio').value;
