@@ -3135,10 +3135,11 @@ function renderConfiguracao() {
           <div style="font-size:11px;color:var(--accent2);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Zona de Perigo</div>
           <button class="btn btn-full" onclick="limparDados()"
             style="background:rgba(239,68,68,0.1);color:var(--accent2);border:1.5px solid rgba(239,68,68,0.35);font-size:15px;padding:13px">
-            🗑 Limpar Todos os Dados
+            🗑 Limpar Financeiro, Jogadores, Jogos e Classificação
           </button>
           <div style="font-size:11px;color:var(--muted);margin-top:6px;padding:0 4px">
-            Remove permanentemente todos os jogadores, jogos e lançamentos financeiros.
+            Apaga lançamentos financeiros, elenco de jogadores, jogos e a classificação (calculada a partir dos jogos).
+            Configurações do grupo, Regras do Jogo e contas de usuário não são afetadas.
           </div>
         </div>
         ` : ''}
@@ -3243,6 +3244,12 @@ async function carregarListaUsuarios() {
             ${jogadoresOptions(u.jogador_id)}
           </select>
         </div>
+        ${(!u.jogador_id && u.apelido) ? `
+        <button class="btn btn-sm btn-ghost btn-full" onclick="criarJogadorParaUsuario('${u.id}','${u.apelido.replace(/'/g,"\\'")}')"
+          style="font-size:11px;color:var(--accent3);border-color:rgba(16,185,129,0.3)">
+          🏐 Cadastrar jogador "${u.apelido}" automaticamente
+        </button>
+        ` : ''}
         <div style="width:100%;display:flex;align-items:center;gap:8px">
           <span style="font-size:11px;color:var(--muted);white-space:nowrap">Tipo:</span>
           <div style="display:flex;gap:6px;flex:1">
@@ -3257,6 +3264,36 @@ async function carregarListaUsuarios() {
   } catch(e) {
     console.error('Erro ao carregar usuários:', e);
     el.innerHTML = '<div style="text-align:center;padding:16px;color:var(--accent2);font-size:13px">Erro ao carregar usuários</div>';
+  }
+}
+
+// Cria um jogador (usando o Apelido como nome) e vincula à conta de outro usuário — ação do Presidente
+async function criarJogadorParaUsuario(userId, apelido) {
+  if (!apelido) return;
+  const novoJogador = { id: uid(), nome: apelido, posicao: '', nota: 0, ativo: true };
+  appData.jogadores.push(novoJogador);
+
+  appData.jogos.forEach(jogo => {
+    if (jogo.encerrado) return;
+    if (!jogo.presencas) jogo.presencas = {};
+    if (!(novoJogador.id in jogo.presencas)) jogo.presencas[novoJogador.id] = false;
+    if (!jogo.presentes) jogo.presentes = {};
+    if (!(novoJogador.id in jogo.presentes)) jogo.presentes[novoJogador.id] = false;
+  });
+
+  save();
+  atualizarDatalist();
+  renderJogadores();
+
+  try {
+    const { error } = await sbClient.from('user_profiles').update({ jogador_id: novoJogador.id }).eq('id', userId);
+    if (error) throw error;
+    if (userId === currentUser?.id) currentUserJogadorId = novoJogador.id;
+    toast(`Jogador "${apelido}" cadastrado e vinculado!`, 'success');
+    carregarListaUsuarios();
+  } catch(e) {
+    console.error('Erro ao vincular jogador:', e);
+    toast('Jogador cadastrado, mas houve erro ao vincular.', 'error');
   }
 }
 
@@ -3374,6 +3411,41 @@ async function renderPerfil() {
   }
 }
 
+// Cria e vincula automaticamente um jogador para esta conta, usando o Apelido como nome.
+// Só age se a conta ainda não estiver vinculada a um jogador existente.
+async function garantirJogadorVinculado(apelido) {
+  if (!apelido) return;
+
+  // Já vinculado a um jogador que ainda existe? Não faz nada (evita duplicar/sobrescrever).
+  if (currentUserJogadorId && appData.jogadores.some(j => j.id === currentUserJogadorId)) return;
+
+  const novoJogador = { id: uid(), nome: apelido, posicao: '', nota: 0, ativo: true };
+  appData.jogadores.push(novoJogador);
+
+  // Adiciona o novo jogador a todos os jogos não encerrados (mesma lógica do cadastro manual)
+  appData.jogos.forEach(jogo => {
+    if (jogo.encerrado) return;
+    if (!jogo.presencas) jogo.presencas = {};
+    if (!(novoJogador.id in jogo.presencas)) jogo.presencas[novoJogador.id] = false;
+    if (!jogo.presentes) jogo.presentes = {};
+    if (!(novoJogador.id in jogo.presentes)) jogo.presentes[novoJogador.id] = false;
+  });
+
+  save();
+  atualizarDatalist();
+  renderJogadores();
+
+  try {
+    const { error } = await sbClient.from('user_profiles').update({ jogador_id: novoJogador.id }).eq('id', currentUser.id);
+    if (error) throw error;
+    currentUserJogadorId = novoJogador.id;
+    toast(`Jogador "${apelido}" cadastrado e vinculado à sua conta!`, 'success');
+  } catch(e) {
+    console.error('Erro ao vincular jogador automaticamente:', e);
+    toast('Jogador cadastrado, mas houve um erro ao vincular à sua conta.', 'error');
+  }
+}
+
 async function salvarPerfil() {
   const btn = document.getElementById('perfil-salvar-btn');
   const nomeCompleto = document.getElementById('perfil-nome-completo').value.trim();
@@ -3392,6 +3464,7 @@ async function salvarPerfil() {
     }).eq('id', currentUser.id);
     if (error) throw error;
     toast('Perfil atualizado com sucesso!', 'success');
+    await garantirJogadorVinculado(apelido);
   } catch(e) {
     console.error('Erro ao salvar perfil:', e);
     toast('Erro ao salvar perfil: ' + (e.message || 'tente novamente.'), 'error');
@@ -3406,20 +3479,30 @@ function limparDados() {
     toast('Apenas o Presidente pode limpar os dados.', 'error');
     return;
   }
-  if (!confirm('⚠️ Atenção!\n\nEsta ação irá apagar TODOS os dados:\n• Jogadores\n• Jogos e presenças\n• Lançamentos financeiros\n\nEsta ação NÃO pode ser desfeita!\n\nDeseja continuar?')) return;
-  if (!confirm('Última confirmação: todos os dados serão permanentemente apagados. Confirmar?')) return;
-  appData = { financeiro: [], jogadores: [], jogos: [],
-    config: { nomeGrupo: '', bloquearPresenca: false, maxPresenca: 0 } };
+  if (!confirm('⚠️ Atenção!\n\nEsta ação irá apagar:\n• Financeiro (todos os lançamentos)\n• Jogadores (todo o elenco)\n• Jogos (histórico e presenças)\n• Classificação (calculada a partir dos jogos)\n\nConfigurações do grupo, Regras do Jogo e contas de usuário NÃO serão afetadas.\n\nEsta ação NÃO pode ser desfeita!\n\nDeseja continuar?')) return;
+  if (!confirm('Última confirmação: Financeiro, Jogadores, Jogos e Classificação serão permanentemente apagados. Confirmar?')) return;
+
+  appData.financeiro = [];
+  appData.jogadores  = [];
+  appData.jogos      = [];
+  // appData.config permanece intacto (nome do grupo, regras de avulsos, Regras do Jogo etc.)
+
+  // O sorteio ativo depende de jogos/jogadores que deixarão de existir
   currentDraw = null;
+  modoEdicaoSorteio = false;
+  editSelecionado = null;
+  pendingWinner = null;
   localStorage.removeItem('volei_draw');
+
   save(); // salva local + Supabase
+
   renderFinanceiro();
   renderJogadores();
   renderJogos();
   renderSorteioSelect();
   renderResumo();
-  currentDraw = null;
-  toast('Todos os dados foram apagados.', 'info');
+  renderClassificacao();
+  toast('Financeiro, Jogadores, Jogos e Classificação foram apagados.', 'info');
 }
 
 function exportarDados() {
