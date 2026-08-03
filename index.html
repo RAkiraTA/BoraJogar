@@ -3140,7 +3140,7 @@ function renderUsuarios() {
       <div class="card-title">🧑‍💼 Gerenciar Usuários</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">
         Defina o papel (Presidente/Gerente/Jogador), o jogador vinculado e se cada conta é <b>mensalista</b> ou
-        <b>avulsa</b>. Novas contas entram como <b>Jogador / mensalista</b> por padrão.
+        <b>avulsa</b>. Novas contas entram como <b>Jogador / avulso</b> por padrão.
       </div>
       <div id="user-list-content">
         <div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">Carregando usuários...</div>
@@ -3176,7 +3176,7 @@ async function carregarListaUsuarios() {
 
     el.innerHTML = data.map(u => {
       const jogadorVinculado = appData.jogadores.find(j => j.id === u.jogador_id);
-      const tipo = u.tipo_jogador || 'mensalista';
+      const tipo = u.tipo_jogador || 'avulso';
       const role = u.role || 'user';
       const nomeExibido = u.nome_completo || u.apelido || '(sem nome cadastrado)';
 
@@ -3515,7 +3515,7 @@ function formatMes(m) {
 let currentUser         = null;
 let currentUserRole     = 'user';
 let currentUserJogadorId = null; // id do jogador vinculado a esta conta (para confirmar presença)
-let currentUserTipoJogador = 'mensalista'; // 'mensalista' | 'avulso'
+let currentUserTipoJogador = 'avulso'; // 'mensalista' | 'avulso'
 let authMode            = 'login'; // 'login' | 'signup'
 
 function toggleMostrarSenha(mostrar) {
@@ -3645,12 +3645,12 @@ async function carregarPerfilUsuario(userId) {
     if (error) throw error;
     currentUserRole        = data?.role || 'user';
     currentUserJogadorId   = data?.jogador_id || null;
-    currentUserTipoJogador = data?.tipo_jogador || 'mensalista';
+    currentUserTipoJogador = data?.tipo_jogador || 'avulso';
   } catch(e) {
     console.warn('Não foi possível carregar o perfil, assumindo role padrão:', e);
     currentUserRole        = 'user';
     currentUserJogadorId   = null;
-    currentUserTipoJogador = 'mensalista';
+    currentUserTipoJogador = 'avulso';
   }
 }
 
