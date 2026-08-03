@@ -933,6 +933,38 @@ function limparSorteioSeReferencia(jogoId) {
   }
 }
 
+// Limpa o sorteio manualmente, sem precisar encerrar/excluir o jogo (botão "🗑 Limpar" no Sorteio)
+function limparSorteioManual() {
+  if (!exigirAdmin()) return;
+  if (!currentDraw) return;
+  if (!confirm('Limpar o sorteio atual? Os times sorteados serão apagados — você pode fazer um novo sorteio em seguida.')) return;
+
+  currentDraw = null;
+  modoEdicaoSorteio = false;
+  editSelecionado = null;
+  pendingWinner = null;
+  save();
+  renderSorteioSelect();
+  if (document.getElementById('sec-placar')?.classList.contains('active')) renderPlacar();
+  toast('Sorteio limpo!', 'success');
+}
+
+// Autocorreção: se o sorteio salvo referenciar um jogo já encerrado ou inexistente
+// (ex: dado antigo salvo antes desta trava existir), limpa automaticamente.
+// Retorna true se algo foi corrigido (para então persistir a correção).
+function validarSorteioAtual() {
+  if (!currentDraw || !currentDraw.jogoId) return false;
+  const jogoRef = appData.jogos.find(j => j.id === currentDraw.jogoId);
+  if (!jogoRef || jogoRef.encerrado) {
+    currentDraw = null;
+    modoEdicaoSorteio = false;
+    editSelecionado = null;
+    pendingWinner = null;
+    return true;
+  }
+  return false;
+}
+
 function solicitarDelete(tipo, id, desc) {
   pendingDelete = { tipo, id };
   document.getElementById('delete-desc').textContent = desc || 'Tem certeza que deseja excluir este item? Esta ação não pode ser desfeita.';
@@ -2243,6 +2275,9 @@ function renderTimes(timeSaiuLabel) {
           <button onclick="toggleEdicaoSorteio()" class="btn btn-sm ${modoEdicaoSorteio ? 'btn-primary' : 'btn-ghost'}"
             style="font-size:12px" title="${modoEdicaoSorteio ? 'Sair do modo edição' : 'Editar times — trocar jogadores'}">
             ✏️ ${modoEdicaoSorteio ? (editSelecionado ? 'Selecione 2º jogador' : 'Selecione jogador') : 'Editar'}
+          </button>
+          <button onclick="limparSorteioManual()" class="btn btn-sm btn-ghost" style="font-size:12px;color:var(--accent2)" title="Limpar este sorteio">
+            🗑 Limpar
           </button>` : ''}
         </div>
       </div>
@@ -3787,6 +3822,7 @@ function iniciarRealtime() {
         config:     d.config || appData.config || {}
       };
       currentDraw = d.sorteio || null;
+      if (validarSorteioAtual()) save(); // autocorrige e propaga para os demais dispositivos
       localStorage.setItem('volei_data', JSON.stringify(appData));
       currentDraw
         ? localStorage.setItem('volei_draw', JSON.stringify(currentDraw))
@@ -3817,6 +3853,7 @@ document.getElementById('jogo-comp').value      = mesAtual;
   document.getElementById('app-loading').style.display = 'flex';
 
   await carregarDados();
+  if (validarSorteioAtual()) save(); // corrige automaticamente sorteios órfãos (jogo já encerrado/excluído)
   document.getElementById('app-loading').style.display = 'none';
 
   renderFinanceiro();
