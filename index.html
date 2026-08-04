@@ -898,7 +898,7 @@ function showSection(id, btn) {
   if (id === 'classificacao') renderClassificacao();
   if (id === 'sorteio') { renderSorteioSelect(); if (currentDraw) renderTimes(); }
   if (id === 'jogos') renderJogos();
-  if (id === 'jogadores') renderJogadores();
+  if (id === 'jogadores') { renderJogadores(); carregarNomesCompletos().then(renderJogadores); }
   if (id === 'usuarios') renderUsuarios();
   if (id === 'configuracao') renderConfiguracao();
   if (id === 'perfil') renderPerfil();
@@ -1043,29 +1043,34 @@ function limparFiltrosFin() {
 }
 
 // Autocomplete de nomes: preenche datalist com jogadores ativos
-async function atualizarDatalist() {
-  const dl = document.getElementById('fin-nome-sugestoes');
-  if (!dl) return;
-  const ativos = appData.jogadores.filter(j => j.ativo !== false);
+// Cache: jogador_id -> nome_completo (de quem tem conta vinculada). Usado no Financeiro e nos Jogadores.
+let jogadorNomesCompletos = {};
 
-  // Busca o Nome Completo de quem tem conta vinculada, para facilitar identificar comprovantes
-  let nomesPorJogadorId = {};
+async function carregarNomesCompletos() {
   try {
     const { data, error } = await sbClient
       .from('user_profiles')
       .select('jogador_id, nome_completo')
       .not('jogador_id', 'is', null);
     if (!error && data) {
-      data.forEach(u => {
-        if (u.nome_completo) nomesPorJogadorId[u.jogador_id] = u.nome_completo;
-      });
+      const mapa = {};
+      data.forEach(u => { if (u.nome_completo) mapa[u.jogador_id] = u.nome_completo; });
+      jogadorNomesCompletos = mapa;
     }
   } catch(e) {
-    console.warn('Não foi possível buscar nomes completos para o datalist:', e);
+    console.warn('Não foi possível carregar nomes completos:', e);
   }
+}
+
+async function atualizarDatalist() {
+  const dl = document.getElementById('fin-nome-sugestoes');
+  if (!dl) return;
+  const ativos = appData.jogadores.filter(j => j.ativo !== false);
+
+  await carregarNomesCompletos();
 
   dl.innerHTML = ativos
-    .map(j => nomesPorJogadorId[j.id] || j.nome)
+    .map(j => jogadorNomesCompletos[j.id] || j.nome)
     .map(nome => `<option value="${nome}">`)
     .join('');
 }
@@ -1479,11 +1484,14 @@ function renderJogadores() {
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
     .map(j => {
       const ativo = j.ativo !== false;
+      const nomeCompletoJog = jogadorNomesCompletos[j.id]; // se houver conta vinculada
 
-      let receitasJog = appData.financeiro.filter(f =>
-        f.tipo.startsWith('receita') &&
-        f.nome.toLowerCase().includes(j.nome.toLowerCase())
-      );
+      let receitasJog = appData.financeiro.filter(f => {
+        if (!f.tipo.startsWith('receita')) return false;
+        const fNome = f.nome.toLowerCase();
+        return fNome.includes(j.nome.toLowerCase()) ||
+          (nomeCompletoJog && fNome.includes(nomeCompletoJog.toLowerCase()));
+      });
       if (jogFiltroMes) receitasJog = receitasJog.filter(f => f.competencia.split('-')[1] === jogFiltroMes);
       if (jogFiltroAno) receitasJog = receitasJog.filter(f => f.competencia.split('-')[0] === jogFiltroAno);
 
@@ -1492,17 +1500,18 @@ function renderJogadores() {
 
       // Competência do ciclo selecionado
       const comp = jogFiltroAno && jogFiltroMes ? jogFiltroAno + '-' + jogFiltroMes : '';
-      const nomeEscapado = j.nome.replace(/'/g, "\\'");
+      const nomeReal = jogadorNomesCompletos[j.id] || j.nome; // nome real, se houver conta vinculada
+      const nomeRealEscapado = nomeReal.replace(/'/g, "\\'");
 
       let statusFinBadge = '';
       if (temReceita) {
         statusFinBadge = temPendencia
-          ? `<span class="badge" onclick="irParaFinanceiroPendente('${nomeEscapado}','${comp}')"
+          ? `<span class="badge" onclick="irParaFinanceiroPendente('${nomeRealEscapado}','${comp}')"
               style="background:rgba(245,158,11,0.15);color:var(--accent);border:1px solid rgba(245,158,11,0.3);font-size:10px;cursor:pointer"
               title="Ver pendências no Financeiro">⏳ Pendente</span>`
           : `<span class="badge" style="background:rgba(16,185,129,0.15);color:var(--accent3);border:1px solid rgba(16,185,129,0.3);font-size:10px">✅ Em dia</span>`;
       } else if (temFiltroCiclo) {
-        statusFinBadge = `<span class="badge" onclick="irParaFinanceiro('${nomeEscapado}','${comp}')"
+        statusFinBadge = `<span class="badge" onclick="irParaFinanceiro('${nomeRealEscapado}','${comp}')"
             style="background:rgba(100,116,139,0.1);color:var(--muted);border:1px solid rgba(100,116,139,0.2);font-size:10px;cursor:pointer"
             title="Lançar no Financeiro">— Sem lançamento</span>`;
       }
@@ -1513,6 +1522,7 @@ function renderJogadores() {
           <div class="player-avatar" style="background:${ativo?'var(--accent)':'var(--muted)'}">${avatarInicial(j.nome)}</div>
           <div class="list-item-info">
             <div class="list-item-name">${j.nome}</div>
+            ${jogadorNomesCompletos[j.id] ? `<div style="font-size:11px;color:var(--muted);margin-top:1px">${jogadorNomesCompletos[j.id]}</div>` : ''}
             <div class="list-item-sub" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:3px">
               <span>${j.posicao || 'Posição não informada'}</span>
               ${statusFinBadge}
@@ -2950,8 +2960,14 @@ function renderResumo() {
     const meuJogador = appData.jogadores.find(j => j.id === currentUserJogadorId);
     if (!meuJogador) return '';
 
+    const meuNomeCompleto = jogadorNomesCompletos[meuJogador.id];
     const minhasPendencias = appData.financeiro
-      .filter(f => f.tipo.startsWith('receita') && f.status !== 'ok' && f.nome.toLowerCase().includes(meuJogador.nome.toLowerCase()))
+      .filter(f => {
+        if (!(f.tipo.startsWith('receita') && f.status !== 'ok')) return false;
+        const fNome = f.nome.toLowerCase();
+        return fNome.includes(meuJogador.nome.toLowerCase()) ||
+          (meuNomeCompleto && fNome.includes(meuNomeCompleto.toLowerCase()));
+      })
       .sort((a,b) => a.data.localeCompare(b.data));
 
     return `
@@ -4099,6 +4115,7 @@ document.getElementById('jogo-comp').value      = mesAtual;
 
   await carregarDados();
   if (validarSorteioAtual()) save(); // corrige automaticamente sorteios órfãos (jogo já encerrado/excluído)
+  await carregarNomesCompletos(); // para exibir nome completo em Jogadores/Resumo desde a primeira renderização
   document.getElementById('app-loading').style.display = 'none';
 
   renderFinanceiro();
