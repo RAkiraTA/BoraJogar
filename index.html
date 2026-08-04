@@ -1043,11 +1043,31 @@ function limparFiltrosFin() {
 }
 
 // Autocomplete de nomes: preenche datalist com jogadores ativos
-function atualizarDatalist() {
+async function atualizarDatalist() {
   const dl = document.getElementById('fin-nome-sugestoes');
   if (!dl) return;
   const ativos = appData.jogadores.filter(j => j.ativo !== false);
-  dl.innerHTML = ativos.map(j => `<option value="${j.nome}">`).join('');
+
+  // Busca o Nome Completo de quem tem conta vinculada, para facilitar identificar comprovantes
+  let nomesPorJogadorId = {};
+  try {
+    const { data, error } = await sbClient
+      .from('user_profiles')
+      .select('jogador_id, nome_completo')
+      .not('jogador_id', 'is', null);
+    if (!error && data) {
+      data.forEach(u => {
+        if (u.nome_completo) nomesPorJogadorId[u.jogador_id] = u.nome_completo;
+      });
+    }
+  } catch(e) {
+    console.warn('Não foi possível buscar nomes completos para o datalist:', e);
+  }
+
+  dl.innerHTML = ativos
+    .map(j => nomesPorJogadorId[j.id] || j.nome)
+    .map(nome => `<option value="${nome}">`)
+    .join('');
 }
 
 // Toggle OK/Pendente de receita
@@ -3229,7 +3249,7 @@ async function carregarListaUsuarios() {
           <div class="player-avatar" style="width:36px;height:36px;font-size:12px">${avatarInicial(nomeExibido)}</div>
           <div class="list-item-info">
             <div style="font-size:14px;font-weight:700">${nomeExibido}${u.bloqueado ? ' <span style="color:var(--accent2);font-size:11px">🔒 Bloqueado</span>' : ''}</div>
-            <div style="font-size:11px;color:var(--muted)">${u.email || '(sem e-mail)'}</div>
+            <div style="font-size:11px;color:var(--muted)">${u.email || '(sem e-mail)'}${u.member_id ? ` · <span style="color:var(--accent);font-weight:700">${u.member_id}</span>` : ''}</div>
             ${dadosPerfil ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${dadosPerfil}</div>` : ''}
             <div style="font-size:11px;color:var(--muted);margin-top:2px">${roleLabel[role] || roleLabel.user}${jogadorVinculado ? ' · 🏐 ' + jogadorVinculado.nome : ''}</div>
           </div>
@@ -3410,6 +3430,9 @@ async function renderPerfil() {
   el.innerHTML = `
     <div class="card">
       <div class="card-title">🙍 Meu Perfil</div>
+      <div id="perfil-member-id" style="display:none;margin-bottom:14px;padding:8px 12px;background:var(--surface2);border-radius:8px;font-size:13px">
+        <span style="color:var(--muted)">ID de Membro:</span> <span style="color:var(--accent);font-weight:700"></span>
+      </div>
       <div class="form-group">
         <label>E-mail</label>
         <input type="email" value="${currentUser.email}" disabled style="opacity:0.6;cursor:not-allowed">
@@ -3434,10 +3457,16 @@ async function renderPerfil() {
   try {
     const { data, error } = await sbClient
       .from('user_profiles')
-      .select('nome_completo, apelido, data_nascimento')
+      .select('nome_completo, apelido, data_nascimento, member_id')
       .eq('id', currentUser.id)
       .single();
     if (error) throw error;
+
+    if (data?.member_id) {
+      const box = document.getElementById('perfil-member-id');
+      box.style.display = 'block';
+      box.querySelector('span:last-child').textContent = data.member_id;
+    }
 
     if (data) {
       document.getElementById('perfil-nome-completo').value = data.nome_completo || '';
