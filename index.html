@@ -3218,11 +3218,11 @@ async function carregarListaUsuarios() {
       ].filter(Boolean).join(' · ');
 
       return `
-      <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px">
+      <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;padding:12px;${u.bloqueado ? 'opacity:0.6' : ''}">
         <div style="display:flex;width:100%;align-items:center;gap:10px">
           <div class="player-avatar" style="width:36px;height:36px;font-size:12px">${avatarInicial(nomeExibido)}</div>
           <div class="list-item-info">
-            <div style="font-size:14px;font-weight:700">${nomeExibido}</div>
+            <div style="font-size:14px;font-weight:700">${nomeExibido}${u.bloqueado ? ' <span style="color:var(--accent2);font-size:11px">🔒 Bloqueado</span>' : ''}</div>
             <div style="font-size:11px;color:var(--muted)">${u.email || '(sem e-mail)'}</div>
             ${dadosPerfil ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${dadosPerfil}</div>` : ''}
             <div style="font-size:11px;color:var(--muted);margin-top:2px">${roleLabel[role] || roleLabel.user}${jogadorVinculado ? ' · 🏐 ' + jogadorVinculado.nome : ''}</div>
@@ -3257,6 +3257,14 @@ async function carregarListaUsuarios() {
               onclick="atualizarTipoJogador('${u.id}','avulso')" style="flex:1;font-size:11px">🎟️ Avulso</button>
           </div>
         </div>
+        <button class="btn btn-sm btn-full" onclick="alternarBloqueioUsuario('${u.id}', ${u.bloqueado ? 'false' : 'true'})"
+          ${u.id === currentUser?.id ? 'disabled title="Você não pode bloquear sua própria conta"' : ''}
+          style="font-size:11px;${u.bloqueado
+            ? 'background:rgba(16,185,129,0.1);color:var(--accent3);border:1px solid rgba(16,185,129,0.3)'
+            : 'background:rgba(239,68,68,0.1);color:var(--accent2);border:1px solid rgba(239,68,68,0.3)'}
+            ${u.id === currentUser?.id ? 'opacity:0.4;cursor:not-allowed' : ''}">
+          ${u.bloqueado ? '🔓 Desbloquear Acesso' : '🔒 Bloquear Acesso'}
+        </button>
       </div>`;
     }).join('') || '<div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">Nenhum usuário encontrado</div>';
   } catch(e) {
@@ -3313,6 +3321,25 @@ async function atualizarTipoJogador(userId, tipo) {
   } catch(e) {
     console.error('Erro ao atualizar tipo:', e);
     toast('Erro ao atualizar tipo do jogador.', 'error');
+  }
+}
+
+// Bloqueia/desbloqueia o acesso de uma conta ao app (revoga na próxima vez que ela carregar/entrar)
+async function alternarBloqueioUsuario(userId, bloquear) {
+  if (userId === currentUser?.id) {
+    toast('Você não pode bloquear sua própria conta.', 'error');
+    return;
+  }
+  if (bloquear && !confirm('Bloquear o acesso desta conta? A pessoa será desconectada e não conseguirá mais entrar até ser desbloqueada.')) return;
+
+  try {
+    const { error } = await sbClient.from('user_profiles').update({ bloqueado: bloquear }).eq('id', userId);
+    if (error) throw error;
+    toast(bloquear ? 'Conta bloqueada.' : 'Conta desbloqueada.', 'success');
+    carregarListaUsuarios();
+  } catch(e) {
+    console.error('Erro ao alternar bloqueio:', e);
+    toast('Erro ao atualizar bloqueio da conta.', 'error');
   }
 }
 
@@ -3436,30 +3463,22 @@ async function garantirJogadorVinculado(nomeCompleto, apelido) {
   // Já vinculado a um jogador que ainda existe? Não faz nada (evita duplicar/sobrescrever).
   if (currentUserJogadorId && appData.jogadores.some(j => j.id === currentUserJogadorId)) return;
 
-  const novoJogador = { id: uid(), nome: nome, posicao: '', nota: 0, ativo: true };
-  appData.jogadores.push(novoJogador);
-
-  // Adiciona o novo jogador a todos os jogos não encerrados (mesma lógica do cadastro manual)
-  appData.jogos.forEach(jogo => {
-    if (jogo.encerrado) return;
-    if (!jogo.presencas) jogo.presencas = {};
-    if (!(novoJogador.id in jogo.presencas)) jogo.presencas[novoJogador.id] = false;
-    if (!jogo.presentes) jogo.presentes = {};
-    if (!(novoJogador.id in jogo.presentes)) jogo.presentes[novoJogador.id] = false;
-  });
-
-  save();
-  atualizarDatalist();
-  renderJogadores();
-
   try {
-    const { error } = await sbClient.from('user_profiles').update({ jogador_id: novoJogador.id }).eq('id', currentUser.id);
+    // Usa a função segura (SECURITY DEFINER) — necessária porque o papel Jogador
+    // não tem permissão de escrita direta em volei_dados.
+    const { data: novoJogadorId, error } = await sbClient.rpc('criar_jogador_proprio', { p_nome: nome });
     if (error) throw error;
-    currentUserJogadorId = novoJogador.id;
+
+    currentUserJogadorId = novoJogadorId;
+
+    // A criação aconteceu no servidor — recarrega os dados para refletir o novo jogador
+    await carregarDados();
+    atualizarDatalist();
+    renderJogadores();
     toast(`Jogador "${nome}" cadastrado e vinculado à sua conta!`, 'success');
   } catch(e) {
     console.error('Erro ao vincular jogador automaticamente:', e);
-    toast('Jogador cadastrado, mas houve um erro ao vincular à sua conta.', 'error');
+    toast('Erro ao cadastrar jogador: ' + (e.message || 'tente novamente.'), 'error');
   }
 }
 
@@ -3647,6 +3666,8 @@ let currentUser         = null;
 let currentUserRole     = 'user';
 let currentUserJogadorId = null; // id do jogador vinculado a esta conta (para confirmar presença)
 let currentUserTipoJogador = 'avulso'; // 'mensalista' | 'avulso'
+let currentUserBloqueado = false;
+let currentUserProfileExists = true; // false se a linha em user_profiles foi apagada
 let authMode            = 'login'; // 'login' | 'signup'
 
 function toggleMostrarSenha(mostrar) {
@@ -3773,15 +3794,26 @@ async function logout() {
 async function carregarPerfilUsuario(userId) {
   try {
     const { data, error } = await sbClient.from('user_profiles').select('*').eq('id', userId).single();
-    if (error) throw error;
-    currentUserRole        = data?.role || 'user';
-    currentUserJogadorId   = data?.jogador_id || null;
-    currentUserTipoJogador = data?.tipo_jogador || 'avulso';
+    if (error) {
+      // PGRST116 = o PostgREST não encontrou NENHUMA linha para esse id — perfil foi apagado de propósito
+      if (error.code === 'PGRST116') {
+        currentUserProfileExists = false;
+        return;
+      }
+      throw error; // outros erros (rede, etc.) não devem bloquear o acesso — caem no catch abaixo
+    }
+    currentUserRole          = data?.role || 'user';
+    currentUserJogadorId     = data?.jogador_id || null;
+    currentUserTipoJogador   = data?.tipo_jogador || 'avulso';
+    currentUserBloqueado     = !!data?.bloqueado;
+    currentUserProfileExists = true;
   } catch(e) {
     console.warn('Não foi possível carregar o perfil, assumindo role padrão:', e);
-    currentUserRole        = 'user';
-    currentUserJogadorId   = null;
-    currentUserTipoJogador = 'avulso';
+    currentUserRole          = 'user';
+    currentUserJogadorId     = null;
+    currentUserTipoJogador   = 'avulso';
+    currentUserBloqueado     = false;
+    currentUserProfileExists = true; // erro de rede não é motivo para revogar acesso
   }
 }
 
@@ -3810,6 +3842,26 @@ async function initAuth() {
 
   currentUser = session.user;
   await carregarPerfilUsuario(currentUser.id);
+
+  if (!currentUserProfileExists) {
+    await sbClient.auth.signOut();
+    authScreen.style.display = 'flex';
+    header.style.display     = 'none';
+    wrapper.style.display    = 'none';
+    setAuthMode('login');
+    showAuthMsg('Sua conta não está mais registrada no sistema. Entre em contato com o Presidente.', 'error');
+    return false;
+  }
+
+  if (currentUserBloqueado) {
+    await sbClient.auth.signOut();
+    authScreen.style.display = 'flex';
+    header.style.display     = 'none';
+    wrapper.style.display    = 'none';
+    setAuthMode('login');
+    showAuthMsg('Sua conta foi bloqueada. Entre em contato com o Presidente do grupo.', 'error');
+    return false;
+  }
 
   authScreen.style.display = 'none';
   header.style.display     = 'flex';
