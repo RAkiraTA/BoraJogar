@@ -3762,8 +3762,8 @@ async function submitAuth() {
         showAuthMsg('Conta criada com sucesso! Entrando...', 'success');
         setTimeout(() => location.reload(), 1200);
       } else if (data?.user) {
-        showAuthMsg(`Conta criada com sucesso! Chegará um e-mail em ${email} para ativação da conta.`, 'success');
         setAuthMode('login');
+        showAuthMsg(`Conta criada com sucesso! Chegará um e-mail em ${email} para ativação da conta.`, 'success');
       } else {
         showAuthMsg('Resposta inesperada do servidor. Tente novamente em instantes.', 'error');
         console.error('signUp retornou sem user/session:', data);
